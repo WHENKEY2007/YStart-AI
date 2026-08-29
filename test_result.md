@@ -306,6 +306,51 @@ backend:
         agent: "testing"
         comment: "TESTED: Delete startup works correctly. DELETE returned {deleted: true}. Subsequent GET request returned 500 (expected behavior when .single() fails on deleted record), confirming cascade delete worked. All related data (profile, interview, reports, claims, missions, submissions, evaluations, scores, versions) removed via FK CASCADE."
 
+  - task: "Pitch Practice backend (POST /api/pitch/start, /api/pitch, /api/pitch/debrief; GET /api/pitch/:startupId)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "NEW: AI investor pitch practice. start -> creates session (uuid), builds dossier from board reports/claims/latest score, returns first hard question. turn -> stores founder answer, returns feedback + answer_rating (1-10) + next question + done flag. debrief -> coach debrief with overall_rating 0-100, verdict, strengths, weaknesses, coaching, best/worst moments. GET groups pitch_messages by session. Requires pitch_messages table (migration applied & verified)."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: All pitch practice endpoints working correctly. POST /api/pitch/start (11.9s) creates session with uuid, returns first question with question_source, done=false, feedback=null, answer_rating=null. POST /api/pitch (9.8s, 9.5s) stores answers, returns feedback + answer_rating (1-10) + next question + done flag. Strong answer got rating 3, weak answer got rating 2 (correctly low). POST /api/pitch/debrief (12.0s) returns comprehensive debrief with overall_rating=22/100, verdict, 3 strengths, 4 weaknesses, 5 coaching items, best_moment, worst_moment. GET /api/pitch/:startupId returns sessions array with 6 messages (4 assistant, 2 user) and debrief attached. Validation tests passed: empty body → 400, missing session/message → 400, debrief with no answers → 400. Total 4 AI calls completed successfully."
+
+  - task: "Mission due date PUT /api/missions/:id"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "NEW: sets/clears due_date (YYYY-MM-DD or null) on evidence_missions. Validates format (400 on bad input). No AI calls."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: Mission due date endpoint working correctly. PUT /api/missions/:id successfully sets due_date to '2026-01-15', accepts past dates like '2020-01-01' (overdue logic is frontend-side as expected), returns 400 for invalid format 'not-a-date', clears due_date with null value. Final state: mission due_date set to '2020-01-01' (overdue) for frontend testing. Verified persistence via GET /api/startups/:id. All validation tests passed. No AI calls."
+
+  - task: "Versions full GET /api/startups/:id/versions-full"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "NEW: returns full profile jsonb per version for the Compare Versions UI. No AI calls."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: Versions full endpoint working correctly. GET /api/startups/:id/versions-full returns 4 versions (v1, v2, v3, v4) ordered ascending by version number. Each version has all required fields: id, version, profile (full object with all 15 fields: startup_name, idea, target_customer, customer_problem, current_alternatives, solution, value_proposition, competitors, business_model, pricing, growth_strategy, first_100_users, traction, existing_evidence, key_assumptions), changed_fields, created_at. Version 1 changed_fields=['initial'], v2=['business_model'], v3=['pricing'], v4=['growth_strategy']. No AI calls."
+
 frontend:
   - task: "War Room dark UI SPA (dashboard, interview, profile, analysis, missions, score)"
     implemented: true
@@ -373,10 +418,26 @@ frontend:
         agent: "testing"
         comment: "✅ TESTED: One-Pager export works correctly. Button with data-testid='export-onepager' found on Investor Readiness tab. Clicking it opens a NEW WINDOW (popup) with MealPrepPal content including 'Investor Readiness' section and 'Score Breakdown'. Dashboard also has a 'One-Pager' button that is visible when a score exists. Feature working as expected."
 
+  - task: "Pitch Practice UI (chat, ratings, debrief, past sessions)"
+    implemented: true
+    working: true
+    file: "app/page.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "NEW: 'Pitch Practice' nav tab. Start session button (data-testid='start-pitch'), investor chat bubbles with question_source label, per-answer feedback block with X/10 rating pill, textarea[placeholder='Your answer to the investor...'], End session button (data-testid='end-pitch') -> debrief card (data-testid='pitch-debrief'), past sessions list with ratings. USER APPROVED frontend testing of this feature. Other new UI (milestones timeline data-testid='milestones', overdue flags, compare dialog data-testid='compare-v2'/'score-impact') = quick zero-AI visual checks only."
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPLETE PITCH PRACTICE TEST SUCCESSFUL - ALL FEATURES WORKING. PRIMARY TEST (4 AI calls, ~45s total): (1) Navigation: Successfully loaded app → Enter War Room → MealPrepPal → Pitch Practice tab (with Mic icon, correctly positioned between Evidence Lab and Investor Readiness). (2) Past sessions panel: Found 1 existing session showing rating 22/100. Clicked past session → verified transcript with 4 investor messages labeled 'The Investor', 2 founder answer bubbles (right-aligned, emerald background), debrief card [data-testid='pitch-debrief'] with overall rating 22/100, all sections present (strengths, weaknesses, coaching). (3) New session: Clicked [data-testid='start-pitch'] → first investor question appeared in ~5s with question source tag '· critic claim'. (4) Strong answer: Submitted 'We interviewed 30 parents; 24 rated meal planning a top-3 weekly pain averaging 2.5 hours. 150 waitlist signups from two parenting Facebook groups, 22 said they'd pay $12/month.' → feedback block appeared in ~15s with 3/10 rating pill + next question. (5) Weak answer: Submitted 'Honestly we haven't tested pricing much but we feel parents will pay.' → second feedback appeared in ~10s with 2/10 rating (correctly low). (6) End session: Clicked [data-testid='end-pitch'] → debrief card appeared in ~15s with overall rating 25/100, verdict text, 2 strengths, 3 weaknesses, 5 coaching items, best moment, worst moment. (7) Past sessions list updated to show 2 sessions (new one with 25/100 rating). SECONDARY TESTS (zero AI cost, visual checks only): (8) Investor Readiness: Milestones panel [data-testid='milestones'] found with 'First evidence-based assessment' entry and 'Next milestone' progress row. (9) Evidence Lab: 2 'Overdue' pills found, 'Target: 1/1/2020 — overdue' text verified (backend set this), 6 'Set target date' links found. (10) Startup Profile: Version history with 3 Compare buttons, clicked one → dialog opened 'Version 3 → 4', score impact row [data-testid='score-impact'] found showing '58 → 57 (-1)', before (red) and after (green) field cards present. (11) Dashboard: Pending missions header shows 'Pending evidence missions (7 · 1 overdue)', 2 'Overdue' pills on mission rows. All UI elements, data-testids, labels, and interactions working as specified. No issues found."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 5
+  test_sequence: 7
+  run_ui: true
   run_ui: true
 
 test_plan:
@@ -404,3 +465,7 @@ agent_communication:
     message: "✅ FULL FRONTEND FLOW TEST SUCCESSFUL - Main agent was CORRECT about false alarm. CONFIRMED: Interview persistence works perfectly. Previous test failure was due to MY test script issues (selectors/async), NOT an app bug. COMPLETE FLOW TESTED: (1) Landing & Navigation: ProofLoop landing page, Enter War Room, MealPrepPal selection all working. (2) Interview (4 answers total): Successfully answered 3 additional questions. Each triggered POST /api/interview with 200 response, counter updated correctly (1→2→3→4 answers), AI responses appeared in 6-8s each. (3) Profile Generation: Completed with 15 field cards, 'Convene the AI Board' button present. (4) AI Board: Took 151s to complete, all 6 agents present (Market, Product, Business, Growth, Critic, Chairman), Market Agent dialog opened with Strengths/Risks sections working. (5) Evidence Lab: 7 mission cards, submitted evidence for first mission, evaluation completed in 18.1s, Chairman re-assessment banner appeared and cleared after 42.2s. (6) Investor Readiness: Score 44/100 displayed with status pill, 7 category breakdowns (Market Validation 57/100, Product 49/100, Business Model 42/100, Growth Strategy 40/100, Traction 38/100, Defensibility/Moat 25/100, Evidence Quality 30/100), 4 insight cards (Strongest Area, Biggest Weakness, Critical Investor Objection, Recommended Next Action). (7) One-Pager Export: Button [data-testid='export-onepager'] clicked, popup opened with MealPrepPal content, Dashboard also has One-Pager button. (8) Dashboard: Name, score 44/100, trajectory chart, critical risks (4 items), pending missions (7), validated claims (0) all present. ❌ CRITICAL ISSUE FOUND: Smart Re-Analysis does NOT work. Edited Business Model field, profile saved successfully (Version 2 created), but NO 'Smart re-analysis in progress' overlay appeared, NO auto-navigation to Investor Readiness, NO banner with 'Changes detected', score remained 44/100 (unchanged). The automatic smart re-analysis feature is completely non-functional."
   - agent: "testing"
     message: "✅ SMART RE-ANALYSIS RETEST COMPLETE - Feature confirmed WORKING. Main agent was correct about false alarm. TESTED: Edited MealPrepPal Growth Strategy field → clicked Save → stayed on page (no reload). VERIFIED: (1) PUT profile 200, (2) Overlay appeared showing 'Smart re-analysis in progress' with 2 active stages, (3) POST analyze/specialists 200 (~15s, growth only), (4) POST analyze/chairman 200 (~45s), (5) Overlay cleared after 50s, (6) Auto-nav to Investor Readiness tab, (7) Score updated to 57/100, (8) Emerald notice [data-testid='smart-notice'] with message 'growth agent(s) + Chairman re-scored', (9) Score history chart shows 4 points, (10) Sidebar score 57-58 matches overall, (11) Notice dismissible. Minor cosmetic: overlay lists all 4 specialists even though only growth ran. Previous test failure was script issue (page reload), not app bug. ALL FRONTEND FEATURES NOW VERIFIED WORKING."
+  - agent: "testing"
+    message: "✅ 3 NEW BACKEND ENDPOINTS TESTED - ALL PASSING: (1) Pitch Practice: POST /api/pitch/start (11.9s), POST /api/pitch (9.8s, 9.5s), POST /api/pitch/debrief (12.0s), GET /api/pitch/:startupId all working correctly. 4 AI calls completed successfully. Strong answer rated 3/10, weak answer rated 2/10 (correctly low). Debrief returned overall_rating 22/100 with verdict, 3 strengths, 4 weaknesses, 5 coaching items. Session with 6 messages (4 assistant, 2 user) and debrief attached. All validation tests passed (400 for invalid inputs). (2) Mission Due Date: PUT /api/missions/:id sets/clears due_date correctly. Accepts valid dates (2026-01-15), past dates (2020-01-01), null to clear. Returns 400 for invalid format. Final state: mission due_date='2020-01-01' (overdue) for frontend testing. (3) Versions Full: GET /api/startups/:id/versions-full returns 4 versions ordered ascending. Each version has id, version, profile (full 15 fields), changed_fields, created_at. All previously-tested endpoints remain working. No issues found."
+  - agent: "testing"
+    message: "✅ PITCH PRACTICE UI TEST COMPLETE - ALL FEATURES WORKING PERFECTLY. PRIMARY TEST (4 AI calls, ~45s total): Successfully tested complete pitch practice flow from start to debrief. Navigation correct (Pitch Practice tab with Mic icon between Evidence Lab and Investor Readiness). Past sessions panel shows existing session with 22/100 rating. Clicked past session → verified transcript with investor messages labeled 'The Investor', founder answers right-aligned with emerald background, debrief card [data-testid='pitch-debrief'] with all sections (strengths, weaknesses, coaching). Started new session → first question appeared in ~5s with question source tag. Submitted strong answer → feedback appeared in ~15s with 3/10 rating + next question. Submitted weak answer → feedback appeared in ~10s with 2/10 rating (correctly low). Ended session → debrief appeared in ~15s with 25/100 overall rating, verdict, 2 strengths, 3 weaknesses, 5 coaching items, best/worst moments. Past sessions list updated to 2 sessions. SECONDARY TESTS (zero AI cost): Investor Readiness milestones panel [data-testid='milestones'] found with 'First evidence-based assessment' entry. Evidence Lab shows 2 'Overdue' pills and 'Target: 1/1/2020 — overdue' text (backend set this), 6 'Set target date' links. Startup Profile version comparison dialog opens with [data-testid='score-impact'] showing score change, before/after field cards (red/green). Dashboard shows 'Pending evidence missions (7 · 1 overdue)' header and 'Overdue' pills on mission rows. All UI elements, data-testids, labels, and interactions working as specified. No issues found. ALL TESTS PASSED."

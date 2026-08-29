@@ -221,7 +221,12 @@ export async function POST(request, ctx) {
       const covered = new Set(missions.map((m) => m.claim_id))
       const need = claims.filter((c) => c.evidence_required && c.status === 'unproven' && !covered.has(c.id))
       if (!need.length) return json({ missions: [], message: 'All claims already have missions' })
-      const generated = await generateMissions(profileRow?.profile || {}, need)
+      // Chunk claims into small batches generated in PARALLEL to stay well under the 60s ingress timeout
+      const CHUNK = 3
+      const chunks = []
+      for (let i = 0; i < need.length; i += CHUNK) chunks.push(need.slice(i, i + CHUNK))
+      const results = await Promise.all(chunks.map((c) => generateMissions(profileRow?.profile || {}, c)))
+      const generated = results.flat()
       const inserted = []
       for (const m of generated) {
         const row = await q(db.from('evidence_missions').insert({ startup_id, ...m, status: 'pending' }).select().single())

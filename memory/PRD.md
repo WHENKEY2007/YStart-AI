@@ -26,11 +26,13 @@ Startup Idea → Founder Interview → Startup Profile → Specialist Analysis �
 - POST /api/missions/:id/submit; PUT /api/startups/:id/profile (change detection → affected agents)
 
 ## Status (June 2025)
-- Backend: FULLY TESTED end-to-end by backend testing agent — all 11 tasks PASSED (see /app/test_result.md)
-- Frontend: implemented, NOT yet tested by agent (user permission pending)
-- Known infra note: POST /api/analyze/missions may exceed the 60s Cloudflare/ingress timeout → client sees 502 even though backend completes successfully and missions ARE saved. Potential fix: chunked/parallel mission generation or frontend polling after 502.
+- Backend: FULLY TESTED end-to-end — all tasks PASSED (see /app/test_result.md)
+- Missions timeout FIXED: claims chunked into batches of 3, generated in parallel → HTTP 200 in ~50s (was 502 at 60s). Frontend AnalysisRunner also has a 502-resilience fallback (checks DB for pending missions on gateway error).
+- Smart Re-Analysis SHIPPED + TESTED: saving a profile edit auto-runs only affected specialists + Chairman (AnalysisRunner stages=['specialists','chairman']), auto-navigates to Readiness, emerald success notice (data-testid='smart-notice'), sidebar score refreshes.
+- Investor One-Pager Export SHIPPED + TESTED: openOnePager() in page.js — printable light-themed one-pager (new window, Print/Save-as-PDF), composed from profile + score + validated claims + chairman report, ZERO AI calls. Buttons on Readiness tab (data-testid='export-onepager') + Dashboard.
+- Frontend: FULLY TESTED (full War Room flow: landing → create → interview → profile → board → evidence → readiness → one-pager → smart re-analysis → dashboard). Demo startup "MealPrepPal" left in DB.
+- Known cosmetic nit (unfixed, trivial): smart re-analysis overlay stage description always lists "Market · Product · Business · Growth" even when only a subset runs.
 
 ## Backlog
-- P1: Change detection → rerun only affected agents on profile edit (detection done; rerun wiring exists via agents subset param)
-- P2: Modularize monolithic `page.js` (996 lines) and `proofloop.js`
-- Fix missions endpoint timeout (chunking or polling)
+- P2: Modularize monolithic `page.js` (~1100 lines) and `proofloop.js`
+- Cosmetic: dynamic agent names in smart re-analysis overlay description

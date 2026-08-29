@@ -9,7 +9,7 @@ import { Progress } from '@/components/ui/progress'
 import {
   Shield, Target, Wrench, DollarSign, TrendingUp, Swords, Scale, FlaskConical,
   LayoutDashboard, MessageSquare, FileText, Users, Gauge, ChevronRight, Loader2,
-  CheckCircle2, AlertTriangle, XCircle, CircleDot, Plus, Send, Pencil, RefreshCw, ArrowRight, History,
+  CheckCircle2, AlertTriangle, XCircle, CircleDot, Plus, Send, Pencil, RefreshCw, ArrowRight, History, Download,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -244,7 +244,8 @@ const STAGES = [
   { key: 'chairman', label: 'Chairman delivering verdict', desc: 'Evidence-based assessment & readiness score' },
 ]
 
-function AnalysisRunner({ startupId, agents, onDone, onError }) {
+function AnalysisRunner({ startupId, agents, stages, onDone, onError }) {
+  const activeStages = stages?.length ? STAGES.filter((s) => stages.includes(s.key)) : STAGES
   const [stageIdx, setStageIdx] = useState(0)
   const [failed, setFailed] = useState(null)
   const running = useRef(false)
@@ -254,30 +255,40 @@ function AnalysisRunner({ startupId, agents, onDone, onError }) {
     running.current = true
     setFailed(null)
     try {
-      for (let i = fromIdx; i < STAGES.length; i++) {
+      for (let i = fromIdx; i < activeStages.length; i++) {
         setStageIdx(i)
-        const stage = STAGES[i].key
+        const stage = activeStages[i].key
         const body = { startup_id: startupId }
         if (stage === 'specialists' && agents?.length) body.agents = agents
         if (stage === 'specialists' && agents?.length === 0) continue
-        await api(`/analyze/${stage}`, { method: 'POST', body })
+        try {
+          await api(`/analyze/${stage}`, { method: 'POST', body })
+        } catch (e) {
+          // Gateway-timeout resilience: the backend may have finished even if the proxy dropped the response.
+          if (stage === 'missions') {
+            await new Promise((r) => setTimeout(r, 5000))
+            const d = await api(`/startups/${startupId}`)
+            if ((d.missions || []).some((m) => m.status === 'pending')) continue
+          }
+          throw e
+        }
       }
       onDone()
     } catch (e) {
       setFailed({ idx: stageIdx, message: e.message })
       onError?.(e.message)
     } finally { running.current = false }
-  }, [startupId, agents, onDone, onError, stageIdx])
+  }, [startupId, agents, activeStages, onDone, onError, stageIdx])
 
   useEffect(() => { run(0) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/90 backdrop-blur-sm">
       <div className={`${glass} w-full max-w-md p-8`}>
-        <h3 className="font-[family-name:var(--font-grotesk)] text-lg font-bold text-white">The Board is in session</h3>
-        <p className="mt-1 text-xs text-zinc-500">This can take a minute or two. Do not close the page.</p>
+        <h3 className="font-[family-name:var(--font-grotesk)] text-lg font-bold text-white">{activeStages.length < STAGES.length ? 'Smart re-analysis in progress' : 'The Board is in session'}</h3>
+        <p className="mt-1 text-xs text-zinc-500">{activeStages.length < STAGES.length ? 'Only affected agents are re-running to refresh your score.' : 'This can take a minute or two. Do not close the page.'}</p>
         <div className="mt-6 space-y-4">
-          {STAGES.map((s, i) => (
+          {activeStages.map((s, i) => (
             <div key={s.key} className="flex items-start gap-3">
               <div className="mt-0.5">
                 {failed && failed.idx === i ? <XCircle className="h-5 w-5 text-red-400" />
@@ -333,8 +344,15 @@ function ProfileView({ data, refresh, setError, startAnalysis }) {
       const payload = {}
       for (const k of Object.keys(FIELD_LABELS)) payload[k] = ARRAY_FIELDS.includes(k) ? form[k].split('\n').map((s) => s.trim()).filter(Boolean) : form[k]
       const res = await api(`/startups/${data.startup.id}/profile`, { method: 'PUT', body: { profile: payload } })
-      setSaveResult(res); setEditing(false)
+      setEditing(false)
       await refresh()
+      // Smart Re-Analysis: automatically rerun ONLY affected specialists + Chairman re-score
+      if (res.changed_fields?.length && hasReports) {
+        setSaveResult({ ...res, auto: true })
+        startAnalysis(res.affected_agents || [], res.affected_agents?.length ? ['specialists', 'chairman'] : ['chairman'])
+      } else {
+        setSaveResult(res)
+      }
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
@@ -358,19 +376,21 @@ function ProfileView({ data, refresh, setError, startAnalysis }) {
       </div>
 
       {saveResult && saveResult.changed_fields?.length > 0 && (
-        <div className={`${glass} border-amber-500/30 bg-amber-500/5 p-4`}>
+        <div className={`${glass} ${saveResult.auto ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'} p-4`}>
           <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-400" />
+            {saveResult.auto ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-400" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-400" />}
             <div className="flex-1">
-              <p className="text-sm font-medium text-amber-300">Changes detected: {saveResult.changed_fields.map((f) => FIELD_LABELS[f] || f).join(', ')}</p>
+              <p className={`text-sm font-medium ${saveResult.auto ? 'text-emerald-300' : 'text-amber-300'}`}>Changes detected: {saveResult.changed_fields.map((f) => FIELD_LABELS[f] || f).join(', ')}</p>
               <p className="mt-1 text-xs text-zinc-400">
-                {saveResult.affected_agents.length
+                {saveResult.auto
+                  ? `Smart re-analysis ran automatically: ${saveResult.affected_agents?.length ? saveResult.affected_agents.join(', ') + ' agent(s) re-analyzed' : 'no specialist affected'} + Chairman re-scored.`
+                  : saveResult.affected_agents?.length
                   ? `Affected agents to re-run: ${saveResult.affected_agents.join(', ')} + Critic + Chairman`
                   : 'No specialist re-run needed, but the Critic and Chairman should re-assess.'}
               </p>
               {hasReports && (
-                <Button onClick={() => { setSaveResult(null); startAnalysis(saveResult.affected_agents) }} size="sm" className="mt-3 bg-amber-500 text-zinc-950 hover:bg-amber-400">
-                  <RefreshCw className="mr-2 h-3.5 w-3.5" /> Re-run affected agents
+                <Button onClick={() => { setSaveResult(null); startAnalysis(null) }} size="sm" variant="outline" className="mt-3 border-white/15 bg-transparent text-zinc-300 hover:bg-white/5">
+                  <RefreshCw className="mr-2 h-3.5 w-3.5" /> Run full board instead (Critic + new missions)
                 </Button>
               )}
             </div>
@@ -690,6 +710,85 @@ const CAT_LABELS = {
   growth: 'Growth Strategy', traction: 'Traction', moat: 'Defensibility / Moat', evidence_quality: 'Evidence Quality',
 }
 
+// ---------------- Investor One-Pager export (no AI calls — composed from existing data) ----------------
+function openOnePager(data) {
+  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const p = data.profile || {}
+  const score = data.latest_score
+  const chairman = data.reports?.chairman || {}
+  const validated = (data.claims || []).filter((c) => ['validated', 'partially_validated'].includes(c.status))
+  const latestEvalByMission = {}
+  for (const m of data.missions || []) {
+    const ev = m.evaluations?.[m.evaluations.length - 1]
+    if (ev && ['VALIDATED', 'PARTIALLY_VALIDATED'].includes(ev.status)) latestEvalByMission[m.id] = { title: m.title, status: ev.status, confidence: ev.confidence }
+  }
+  const evidenceRows = Object.values(latestEvalByMission)
+  const col = (n) => (n >= 75 ? '#059669' : n >= 50 ? '#d97706' : '#dc2626')
+  const catRows = Object.entries(CAT_LABELS).map(([k, label]) => {
+    const c = score?.categories?.[k]
+    if (!c) return ''
+    return `<tr><td style="padding:5px 10px 5px 0;color:#52525b;font-size:12px;white-space:nowrap">${esc(label)}</td><td style="width:100%"><div style="background:#e4e4e7;border-radius:99px;height:8px"><div style="width:${c.score}%;background:${col(c.score)};height:8px;border-radius:99px"></div></div></td><td style="padding-left:10px;font-weight:700;font-size:12px;color:${col(c.score)}">${c.score}</td></tr>`
+  }).join('')
+  const li = (items, color = '#18181b') => (items || []).slice(0, 5).map((x) => `<li style="margin-bottom:4px;color:${color};font-size:12.5px;line-height:1.5">${esc(x)}</li>`).join('')
+  const cell = (label, value) => `<div style="border:1px solid #e4e4e7;border-radius:10px;padding:10px 12px"><div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#a1a1aa;margin-bottom:4px">${esc(label)}</div><div style="font-size:12.5px;color:#27272a;line-height:1.5">${esc(value || 'Not specified')}</div></div>`
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(p.startup_name || data.startup?.name)} — Investor One-Pager</title>
+<style>@media print{.noprint{display:none!important}@page{margin:12mm}}body{margin:0;background:#fafafa}</style></head>
+<body style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<div class="noprint" style="position:fixed;top:14px;right:14px;z-index:10"><button onclick="window.print()" style="background:#10b981;color:#0a0a0a;border:none;border-radius:8px;padding:10px 18px;font-weight:700;font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15)">Print / Save as PDF</button></div>
+<div style="max-width:820px;margin:0 auto;background:#fff;padding:36px 40px;min-height:100vh;box-sizing:border-box">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #10b981;padding-bottom:16px">
+    <div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:#10b981;text-transform:uppercase">ProofLoop · Evidence-Validated Startup</div>
+      <h1 style="margin:6px 0 4px;font-size:30px;color:#09090b">${esc(p.startup_name || data.startup?.name)}</h1>
+      <p style="margin:0;font-size:13.5px;color:#3f3f46;max-width:520px;line-height:1.5">${esc(p.value_proposition && p.value_proposition !== 'Not specified' ? p.value_proposition : p.idea || data.startup?.idea)}</p>
+    </div>
+    ${score ? `<div style="text-align:center;border:2px solid ${col(score.overall)};border-radius:14px;padding:12px 20px;min-width:120px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#71717a">Investor Readiness</div>
+      <div style="font-size:42px;font-weight:800;color:${col(score.overall)};line-height:1.1">${score.overall}<span style="font-size:16px;color:#a1a1aa">/100</span></div>
+      <div style="font-size:9.5px;font-weight:700;color:${col(score.overall)};margin-top:2px">${esc(score.readiness_status)}</div>
+    </div>` : ''}
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px">
+    ${cell('Target Customer', p.target_customer)}
+    ${cell('Problem', p.customer_problem)}
+    ${cell('Solution', p.solution)}
+    ${cell('Business Model & Pricing', [p.business_model, p.pricing].filter((x) => x && x !== 'Not specified').join(' — '))}
+    ${cell('Traction', p.traction)}
+    ${cell('Competitors', (p.competitors || []).join(', '))}
+  </div>
+
+  ${score ? `<div style="margin-top:20px"><div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#71717a;margin-bottom:8px">Score Breakdown</div><table style="width:100%;border-collapse:collapse">${catRows}</table></div>` : ''}
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px">
+    <div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#059669;margin-bottom:8px">Validated Claims (${validated.length})</div>
+      ${validated.length ? `<ul style="margin:0;padding-left:18px">${li(validated.map((c) => c.claim))}</ul>` : '<p style="font-size:12px;color:#a1a1aa;margin:0">No independently validated claims yet.</p>'}
+      ${evidenceRows.length ? `<div style="margin-top:10px;font-size:11px;color:#52525b">${evidenceRows.slice(0, 4).map((e) => `• ${esc(e.title)} — <b style="color:${col(e.confidence)}">${e.status === 'VALIDATED' ? 'Validated' : 'Partially validated'} (${e.confidence}/100)</b>`).join('<br>')}</div>` : ''}
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0284c7;margin-bottom:8px">Key Strengths</div>
+      ${chairman.strengths?.length ? `<ul style="margin:0;padding-left:18px">${li(chairman.strengths)}</ul>` : '<p style="font-size:12px;color:#a1a1aa;margin:0">Run the AI Board to surface strengths.</p>'}
+    </div>
+  </div>
+
+  ${chairman.overall_assessment ? `<div style="margin-top:20px;border-left:3px solid #10b981;background:#f0fdf4;border-radius:0 10px 10px 0;padding:12px 14px"><div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#059669;margin-bottom:5px">Board Assessment</div><p style="margin:0;font-size:12.5px;color:#27272a;line-height:1.6">${esc(chairman.overall_assessment)}</p></div>` : ''}
+
+  ${chairman.critical_risks?.length ? `<div style="margin-top:16px"><div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#dc2626;margin-bottom:8px">Known Risks (transparent by design)</div><ul style="margin:0;padding-left:18px">${li(chairman.critical_risks, '#3f3f46')}</ul></div>` : ''}
+
+  <div style="margin-top:26px;border-top:1px solid #e4e4e7;padding-top:10px;font-size:9.5px;color:#a1a1aa;line-height:1.5">
+    Generated by ProofLoop on ${new Date().toLocaleDateString()}. The Investor Readiness Score is an evidence-based readiness assessment, not a guarantee of investment. Founder-submitted evidence is self-reported unless independently verified.
+  </div>
+</div></body></html>`
+
+  const w = window.open('', '_blank')
+  if (!w) return false
+  w.document.write(html)
+  w.document.close()
+  return true
+}
+
 function ReadinessView({ data }) {
   const [openCat, setOpenCat] = useState(null)
   const score = data.latest_score
@@ -699,6 +798,15 @@ function ReadinessView({ data }) {
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-[family-name:var(--font-grotesk)] text-xl font-bold text-white">Investor Readiness</h2>
+          <p className="text-xs text-zinc-500">Evidence-based score with full explanations per category.</p>
+        </div>
+        <Button data-testid="export-onepager" onClick={() => openOnePager(data)} variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">
+          <Download className="mr-2 h-4 w-4" /> Export Investor One-Pager
+        </Button>
+      </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <div className={`${glass} flex flex-col items-center justify-center p-8 text-center`}>
           <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">Investor Readiness Score</div>
@@ -789,6 +897,11 @@ function DashboardView({ data, setTab, startAnalysis }) {
         </div>
         {stage === 'interview' && <Button onClick={() => setTab('interview')} className="bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">Continue Interview <ArrowRight className="ml-2 h-4 w-4" /></Button>}
         {stage === 'profile_ready' && !score && <Button onClick={() => startAnalysis(null)} className="bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400"><Users className="mr-2 h-4 w-4" /> Convene the AI Board</Button>}
+        {score && (
+          <Button onClick={() => openOnePager(data)} variant="outline" size="sm" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">
+            <Download className="mr-2 h-3.5 w-3.5" /> One-Pager
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-4">
@@ -879,7 +992,8 @@ function App() {
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [analysis, setAnalysis] = useState(null) // null | { agents }
+  const [analysis, setAnalysis] = useState(null) // null | { agents, stages }
+  const [notice, setNotice] = useState('')
   const [loadingData, setLoadingData] = useState(false)
 
   const loadStartups = useCallback(async () => {
@@ -893,7 +1007,8 @@ function App() {
   const refresh = useCallback(async () => {
     if (!activeId) return
     try { setData(await api(`/startups/${activeId}`)) } catch (e) { setError(e.message) }
-  }, [activeId])
+    loadStartups()
+  }, [activeId, loadStartups])
 
   useEffect(() => { if (view === 'app') loadStartups() }, [view, loadStartups])
   useEffect(() => {
@@ -909,7 +1024,7 @@ function App() {
     setTab('interview')
   }
 
-  const startAnalysis = (agents) => setAnalysis({ agents })
+  const startAnalysis = (agents, stages) => setAnalysis({ agents, stages })
 
   if (view === 'landing') return <Landing onEnter={() => setView('app')} />
 
@@ -957,6 +1072,12 @@ function App() {
 
       {/* Main */}
       <main className="ml-60 flex-1 p-6 lg:p-8">
+        {notice && (
+          <div data-testid="smart-notice" className="mb-4 flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-300">
+            <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 shrink-0" /> {notice}</span>
+            <button onClick={() => setNotice('')} className="text-emerald-400 hover:text-emerald-200"><XCircle className="h-4 w-4" /></button>
+          </div>
+        )}
         {error && (
           <div className="mb-4 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
             <span>{error}</span>
@@ -985,7 +1106,15 @@ function App() {
         <AnalysisRunner
           startupId={activeId}
           agents={analysis.agents}
-          onDone={async () => { setAnalysis(null); await refresh(); setTab('board') }}
+          stages={analysis.stages}
+          onDone={async () => {
+            const smart = !!analysis.stages
+            const which = analysis.agents?.length ? analysis.agents.join(', ') : null
+            setAnalysis(null)
+            await refresh()
+            if (smart) setNotice(`Smart re-analysis complete — ${which ? `${which} agent(s)` : 'no specialist affected'} + Chairman re-scored after your profile edit.`)
+            setTab(smart ? 'readiness' : 'board')
+          }}
           onError={() => {}}
         />
       )}

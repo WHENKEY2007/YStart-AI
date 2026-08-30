@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import {
   db, aiJSON, interviewTurn, generateProfile, runSpecialist, runCritic,
   generateMissions, evaluateEvidence, runChairman, detectChanges, PROFILE_FIELDS, arr, str,
+  buildPitchContext, pitchTurn, pitchDebrief,
 } from '@/lib/proofloop'
 
 export const runtime = 'nodejs'
@@ -112,6 +113,23 @@ export async function GET(request, ctx) {
         latest_score: scoreHistory[scoreHistory.length - 1] || null,
         versions,
       })
+    }
+
+    if (path[0] === 'startups' && path.length === 3 && path[2] === 'versions-full') {
+      const versions = await q(db.from('startup_versions').select('id, version, profile, changed_fields, created_at').eq('startup_id', path[1]).order('version', { ascending: true }))
+      return json({ versions })
+    }
+
+    if (path[0] === 'pitch' && path.length === 2) {
+      const msgs = await q(db.from('pitch_messages').select('*').eq('startup_id', path[1]).order('created_at', { ascending: true }))
+      const byId = {}
+      for (const m of msgs) {
+        if (!byId[m.session_id]) byId[m.session_id] = { session_id: m.session_id, messages: [], debrief: null, started_at: m.created_at }
+        byId[m.session_id].messages.push(m)
+        if (m.meta?.debrief) byId[m.session_id].debrief = m.meta.debrief
+      }
+      const sessions = Object.values(byId).sort((a, b) => new Date(b.started_at) - new Date(a.started_at))
+      return json({ sessions })
     }
 
     return err('Not found', 404)
@@ -254,6 +272,60 @@ export async function POST(request, ctx) {
       return json(result)
     }
 
+    // Pitch Practice: start session -> first investor question
+    if (path[0] === 'pitch' && path[1] === 'start') {
+      const { startup_id } = body
+      if (!startup_id) return err('startup_id is required', 400)
+      const profileRow = await getProfileRow(startup_id)
+      if (!profileRow) return err('Generate the startup profile first', 400)
+      const reportsRaw = await getLatestReports(startup_id)
+      if (!Object.keys(reportsRaw).length) return err('Convene the AI Board first — the investor uses its dossier', 400)
+      const claims = await getClaims(startup_id)
+      const scores = await q(db.from('score_history').select('*').eq('startup_id', startup_id).order('created_at', { ascending: false }).limit(1))
+      const context = buildPitchContext(reportsRaw, claims, scores?.[0] || null)
+      const session_id = crypto.randomUUID()
+      const turn = await pitchTurn(profileRow.profile, context, [])
+      await q(db.from('pitch_messages').insert({
+        startup_id, session_id, role: 'assistant', content: turn.question,
+        meta: { question_source: turn.question_source },
+      }).select())
+      return json({ session_id, ...turn })
+    }
+
+    // Pitch Practice: founder answer -> feedback + next question
+    if (path[0] === 'pitch' && path.length === 1) {
+      const { startup_id, session_id, message } = body
+      if (!startup_id || !session_id || !str(message).trim()) return err('startup_id, session_id and message are required', 400)
+      const profileRow = await getProfileRow(startup_id)
+      const reportsRaw = await getLatestReports(startup_id)
+      const claims = await getClaims(startup_id)
+      const scores = await q(db.from('score_history').select('*').eq('startup_id', startup_id).order('created_at', { ascending: false }).limit(1))
+      const context = buildPitchContext(reportsRaw, claims, scores?.[0] || null)
+      await q(db.from('pitch_messages').insert({ startup_id, session_id, role: 'user', content: str(message).trim() }).select())
+      const history = await q(db.from('pitch_messages').select('*').eq('session_id', session_id).order('created_at', { ascending: true }))
+      const turn = await pitchTurn(profileRow?.profile || {}, context, history)
+      await q(db.from('pitch_messages').insert({
+        startup_id, session_id, role: 'assistant', content: turn.question,
+        meta: { feedback: turn.feedback, answer_rating: turn.answer_rating, question_source: turn.question_source, done: turn.done },
+      }).select())
+      return json(turn)
+    }
+
+    // Pitch Practice: end session -> coach debrief
+    if (path[0] === 'pitch' && path[1] === 'debrief') {
+      const { startup_id, session_id } = body
+      if (!startup_id || !session_id) return err('startup_id and session_id are required', 400)
+      const profileRow = await getProfileRow(startup_id)
+      const history = await q(db.from('pitch_messages').select('*').eq('session_id', session_id).order('created_at', { ascending: true }))
+      if (!history.filter((m) => m.role === 'user').length) return err('Answer at least one question before ending the session', 400)
+      const debrief = await pitchDebrief(profileRow?.profile || {}, history)
+      await q(db.from('pitch_messages').insert({
+        startup_id, session_id, role: 'assistant', content: `Session debrief: ${debrief.verdict}`,
+        meta: { debrief },
+      }).select())
+      return json({ debrief })
+    }
+
     // Evidence submission -> auto evaluation -> claim update -> optional follow-up mission
     if (path[0] === 'missions' && path.length === 3 && path[2] === 'submit') {
       const missionId = path[1]
@@ -321,6 +393,14 @@ export async function PUT(request, ctx) {
       await q(db.from('startup_versions').insert({ startup_id: startupId, profile: newProfile, version: row.version, changed_fields }).select())
       await q(db.from('startups').update({ updated_at: new Date().toISOString() }).eq('id', startupId).select())
       return json({ changed_fields, affected_agents, version: row.version })
+    }
+
+    // Mission reminder: set / clear target date
+    if (path[0] === 'missions' && path.length === 2) {
+      const due = body.due_date
+      if (due !== null && due !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(str(due))) return err('due_date must be YYYY-MM-DD or null', 400)
+      const row = await q(db.from('evidence_missions').update({ due_date: due || null, updated_at: new Date().toISOString() }).eq('id', path[1]).select().single())
+      return json({ mission: row })
     }
 
     return err('Not found', 404)

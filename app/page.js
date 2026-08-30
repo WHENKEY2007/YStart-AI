@@ -10,7 +10,9 @@ import {
   Shield, Target, Wrench, DollarSign, TrendingUp, Swords, Scale, FlaskConical,
   LayoutDashboard, MessageSquare, FileText, Users, Gauge, ChevronRight, Loader2,
   CheckCircle2, AlertTriangle, XCircle, CircleDot, Plus, Send, Pencil, RefreshCw, ArrowRight, History, Download,
+  Mic, Trophy, CalendarClock, GitCompareArrows,
 } from 'lucide-react'
+import confetti from 'canvas-confetti'
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 const HERO_IMG = 'https://images.unsplash.com/photo-1562184525-ead42cf98b1e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHw0fHxtaXNzaW9uJTIwY29udHJvbHxlbnwwfHx8YmxhY2t8MTc4ODAzMDQzMXww&ixlib=rb-4.1.0&q=85'
@@ -337,8 +339,31 @@ function ProfileView({ data, refresh, setError, startAnalysis }) {
   const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState(null)
+  const [compareFor, setCompareFor] = useState(null)
+  const [fullVersions, setFullVersions] = useState(null)
   const profile = data.profile
   const hasReports = Object.keys(data.reports || {}).length > 0
+
+  const openCompare = async (v) => {
+    setCompareFor(v)
+    if (!fullVersions) {
+      try {
+        const d = await api(`/startups/${data.startup.id}/versions-full`)
+        setFullVersions(d.versions || [])
+      } catch (e) { setError(e.message) }
+    }
+  }
+
+  const scoreImpact = (v) => {
+    const hist = data.score_history || []
+    const t = new Date(v.created_at)
+    let before = null, after = null
+    for (const s of hist) {
+      if (new Date(s.created_at) <= t) before = s.overall
+      else if (after == null) after = s.overall
+    }
+    return { before, after }
+  }
 
   if (!profile) return <div className="pt-10 text-center text-sm text-zinc-500">Complete the Founder Interview to generate your Startup Profile.</div>
 
@@ -440,14 +465,79 @@ function ProfileView({ data, refresh, setError, startAnalysis }) {
           <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-500"><History className="h-3.5 w-3.5" /> Version history</div>
           <ul className="space-y-1.5">
             {data.versions.map((v) => (
-              <li key={v.id} className="flex items-center justify-between text-xs text-zinc-400">
+              <li key={v.id} className="flex items-center justify-between gap-2 text-xs text-zinc-400">
                 <span>v{v.version} — {(v.changed_fields || []).map((f) => FIELD_LABELS[f] || f).join(', ')}</span>
-                <span className="text-zinc-600">{new Date(v.created_at).toLocaleString()}</span>
+                <span className="flex shrink-0 items-center gap-3">
+                  <span className="text-zinc-600">{new Date(v.created_at).toLocaleString()}</span>
+                  {v.version > 1 && (
+                    <button data-testid={`compare-v${v.version}`} onClick={() => openCompare(v)} className="flex items-center gap-1 text-sky-400 hover:text-sky-300">
+                      <GitCompareArrows className="h-3.5 w-3.5" /> Compare
+                    </button>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
         </div>
       )}
+
+      <Dialog open={!!compareFor} onOpenChange={(v) => !v && setCompareFor(null)}>
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto border-white/10 bg-zinc-950 text-zinc-100">
+          {compareFor && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 font-[family-name:var(--font-grotesk)] text-white">
+                  <GitCompareArrows className="h-5 w-5 text-sky-400" /> Version {compareFor.version - 1} → {compareFor.version}
+                </DialogTitle>
+              </DialogHeader>
+              {(() => {
+                if (!fullVersions) return <div className="flex items-center gap-2 py-8 text-sm text-zinc-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading versions...</div>
+                const cur = fullVersions.find((x) => x.version === compareFor.version)
+                const prev = fullVersions.find((x) => x.version === compareFor.version - 1)
+                if (!cur || !prev) return <p className="py-6 text-sm text-zinc-500">Version data not found.</p>
+                const fields = Object.keys(FIELD_LABELS).filter((f) => JSON.stringify(prev.profile?.[f] ?? '') !== JSON.stringify(cur.profile?.[f] ?? ''))
+                const fmt = (val) => (Array.isArray(val) ? (val.length ? val.join(' · ') : '—') : val || '—')
+                const { before, after } = scoreImpact(cur)
+                return (
+                  <div className="space-y-4">
+                    <div className={`${glass} flex flex-wrap items-center gap-4 p-4`} data-testid="score-impact">
+                      <span className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">Score impact</span>
+                      {before != null || after != null ? (
+                        <span className="flex items-center gap-2 text-sm">
+                          <span className={before != null ? scoreColor(before) : 'text-zinc-600'}>{before != null ? before : '—'}</span>
+                          <ArrowRight className="h-4 w-4 text-zinc-600" />
+                          <span className={after != null ? scoreColor(after) : 'text-zinc-600'}>{after != null ? after : 'not re-assessed yet'}</span>
+                          {before != null && after != null && (
+                            <span className={`text-xs font-bold ${after - before > 0 ? 'text-emerald-400' : after - before < 0 ? 'text-red-400' : 'text-zinc-500'}`}>
+                              ({after - before > 0 ? '+' : ''}{after - before})
+                            </span>
+                          )}
+                        </span>
+                      ) : <span className="text-xs text-zinc-600">no scores recorded around this change</span>}
+                    </div>
+                    {!fields.length && <p className="text-sm text-zinc-500">No field differences between these versions.</p>}
+                    {fields.map((f) => (
+                      <div key={f}>
+                        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">{FIELD_LABELS[f]}</div>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-red-400">v{prev.version} (before)</div>
+                            <p className="text-xs leading-relaxed text-zinc-400">{fmt(prev.profile?.[f])}</p>
+                          </div>
+                          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-emerald-500">v{cur.version} (after)</div>
+                            <p className="text-xs leading-relaxed text-zinc-300">{fmt(cur.profile?.[f])}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -548,6 +638,8 @@ function BoardView({ data, startAnalysis }) {
 }
 
 // ---------------- Evidence Lab ----------------
+const isOverdue = (m) => m.due_date && ['pending', 'submitted'].includes(m.status) && new Date(m.due_date + 'T23:59:59') < new Date()
+
 function EvidenceLab({ data, refresh, setError }) {
   const [submitFor, setSubmitFor] = useState(null)
   const [form, setForm] = useState({ description: '', results: '', metrics: '', links: '', notes: '', image: '', imageName: '' })
@@ -555,7 +647,19 @@ function EvidenceLab({ data, refresh, setError }) {
   const [result, setResult] = useState(null)
   const [recalcing, setRecalcing] = useState(false)
   const [filter, setFilter] = useState('open') // 'open' | 'evaluated' | 'all'
+  const [dateFor, setDateFor] = useState(null)
+  const [dateVal, setDateVal] = useState('')
+  const [savingDate, setSavingDate] = useState(false)
   const missions = data.missions || []
+
+  const saveDate = async (m, value) => {
+    setSavingDate(true); setError('')
+    try {
+      await api(`/missions/${m.id}`, { method: 'PUT', body: { due_date: value || null } })
+      setDateFor(null)
+      await refresh()
+    } catch (e) { setError(e.message) } finally { setSavingDate(false) }
+  }
 
   const submit = async () => {
     setBusy(true); setError('')
@@ -590,6 +694,7 @@ function EvidenceLab({ data, refresh, setError }) {
           <div className="flex shrink-0 flex-col items-end gap-1.5">
             <Pill cls={PRIORITY_STYLE[m.priority] || PRIORITY_STYLE.medium}>{m.priority}</Pill>
             <StatusPill status={m.status} />
+            {isOverdue(m) && <Pill cls="bg-red-500/20 text-red-300 border-red-500/40">Overdue</Pill>}
           </div>
         </div>
         {m.is_followup && <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-sky-400">Follow-up mission</span>}
@@ -610,6 +715,28 @@ function EvidenceLab({ data, refresh, setError }) {
           <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2.5">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-emerald-500">Success criteria</div>
             <p className="mt-0.5 text-xs text-emerald-200/80">{m.success_criteria}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs" data-testid={`due-row-${m.id}`}>
+            <CalendarClock className={`h-3.5 w-3.5 ${isOverdue(m) ? 'text-red-400' : 'text-zinc-500'}`} />
+            {dateFor === m.id ? (
+              <>
+                <Input type="date" value={dateVal} onChange={(e) => setDateVal(e.target.value)} className="h-7 w-36 border-white/10 bg-white/5 text-xs text-white" />
+                <Button size="sm" onClick={() => saveDate(m, dateVal)} disabled={savingDate || !dateVal} className="h-7 bg-emerald-500 px-2.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400">{savingDate ? '...' : 'Save'}</Button>
+                {m.due_date && <Button size="sm" variant="outline" onClick={() => saveDate(m, null)} disabled={savingDate} className="h-7 border-white/15 bg-transparent px-2.5 text-xs text-zinc-400 hover:bg-white/5">Clear</Button>}
+                <button onClick={() => setDateFor(null)} className="text-zinc-600 hover:text-zinc-400">cancel</button>
+              </>
+            ) : m.due_date ? (
+              <>
+                <span className={isOverdue(m) ? 'font-semibold text-red-400' : 'text-zinc-400'}>
+                  Target: {new Date(m.due_date + 'T00:00:00').toLocaleDateString()}{isOverdue(m) ? ' — overdue' : ''}
+                </span>
+                {['pending', 'submitted'].includes(m.status) && (
+                  <button onClick={() => { setDateFor(m.id); setDateVal(m.due_date) }} className="text-zinc-500 hover:text-emerald-400"><Pencil className="h-3 w-3" /></button>
+                )}
+              </>
+            ) : m.status === 'pending' ? (
+              <button onClick={() => { setDateFor(m.id); setDateVal('') }} className="text-zinc-500 underline-offset-2 hover:text-emerald-400 hover:underline">Set target date</button>
+            ) : <span className="text-zinc-700">no target date</span>}
           </div>
           {ev && (
             <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
@@ -936,6 +1063,37 @@ function ReadinessView({ data }) {
         ))}
       </div>
 
+      <div className={`${glass} p-5`} data-testid="milestones">
+        <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-500"><Trophy className="h-3.5 w-3.5 text-amber-400" /> Milestones</div>
+        {(() => {
+          const ms = milestonesFrom(data.score_history || [])
+          const next = score.overall >= 75 ? null : score.overall >= 50 ? { at: 75, label: 'Ready for investor conversations' } : { at: 50, label: 'Promising — needs validation' }
+          return (
+            <div className="space-y-3">
+              {next && (
+                <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                  <div className="text-xs text-zinc-400">Next milestone: <span className="font-semibold text-zinc-200">{next.at}/100 — {next.label}</span></div>
+                  <div className="ml-auto flex items-center gap-2">
+                    <div className="h-1.5 w-28 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full ${scoreBar(score.overall)}`} style={{ width: `${Math.min(100, (score.overall / next.at) * 100)}%` }} /></div>
+                    <span className="text-[11px] text-zinc-500">{Math.max(0, next.at - score.overall)} pts to go</span>
+                  </div>
+                </div>
+              )}
+              <ul className="space-y-2">
+                {ms.map((m) => (
+                  <li key={m.key} className="flex items-center gap-3 text-sm">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${m.dot}`} />
+                    <span className={m.tone}>{m.label}</span>
+                    <span className="text-xs text-zinc-600">score {m.score}</span>
+                    <span className="ml-auto text-xs text-zinc-600">{new Date(m.date).toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })()}
+      </div>
+
       <div className={`${glass} p-5`}>
         <div className="mb-4 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">Category breakdown — click for evidence details</div>
         <div className="space-y-3">
@@ -968,6 +1126,219 @@ function ReadinessView({ data }) {
       </div>
     </div>
   )
+}
+
+// ---------------- Pitch Practice ----------------
+const ratingCls = (n) => (n >= 8 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : n >= 5 ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-red-500/15 text-red-400 border-red-500/30')
+
+function DebriefCard({ debrief }) {
+  return (
+    <div className={`${glass} border-amber-500/20 p-6`} data-testid="pitch-debrief">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Trophy className="h-5 w-5 text-amber-400" />
+          <h3 className="font-[family-name:var(--font-grotesk)] text-lg font-bold text-white">Session Debrief</h3>
+        </div>
+        <div className={`text-3xl font-bold ${scoreColor(debrief.overall_rating)}`}>{debrief.overall_rating}<span className="text-sm text-zinc-500">/100</span></div>
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-300">{debrief.verdict}</p>
+      <div className="mt-5 grid gap-5 md:grid-cols-2">
+        <SectionList title="What you answered well" items={debrief.strengths} dot="bg-emerald-500" />
+        <SectionList title="Where you lost the investor" items={debrief.weaknesses} dot="bg-red-500" />
+      </div>
+      <div className="mt-5">
+        <SectionList title="Coaching — how to answer better" items={debrief.coaching} dot="bg-sky-500" />
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {debrief.best_moment && (
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-emerald-500">Best moment</div>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-300">{debrief.best_moment}</p>
+          </div>
+        )}
+        {debrief.worst_moment && (
+          <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-red-400">Weakest moment</div>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-300">{debrief.worst_moment}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PitchView({ data, setError }) {
+  const [sessions, setSessions] = useState(null)
+  const [sessionId, setSessionId] = useState(null)
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [ending, setEnding] = useState(false)
+  const [done, setDone] = useState(false)
+  const [debrief, setDebrief] = useState(null)
+  const [readonly, setReadonly] = useState(false)
+  const endRef = useRef(null)
+  const hasBoard = Object.keys(data.reports || {}).length > 0
+  const answers = messages.filter((m) => m.role === 'user').length
+
+  const loadSessions = useCallback(async () => {
+    try { const d = await api(`/pitch/${data.startup.id}`); setSessions(d.sessions || []) } catch { setSessions([]) }
+  }, [data.startup.id])
+  useEffect(() => { loadSessions() }, [loadSessions])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, busy, debrief])
+
+  const start = async () => {
+    setStarting(true); setError(''); setDebrief(null); setReadonly(false); setDone(false)
+    try {
+      const d = await api('/pitch/start', { method: 'POST', body: { startup_id: data.startup.id } })
+      setSessionId(d.session_id)
+      setMessages([{ role: 'assistant', content: d.question, meta: { question_source: d.question_source } }])
+    } catch (e) { setError(e.message) } finally { setStarting(false) }
+  }
+
+  const send = async () => {
+    const text = input.trim()
+    if (!text || busy) return
+    setInput(''); setBusy(true); setError('')
+    setMessages((m) => [...m, { role: 'user', content: text }])
+    try {
+      const turn = await api('/pitch', { method: 'POST', body: { startup_id: data.startup.id, session_id: sessionId, message: text } })
+      setMessages((m) => [...m, { role: 'assistant', content: turn.question, meta: { feedback: turn.feedback, answer_rating: turn.answer_rating, question_source: turn.question_source } }])
+      if (turn.done) setDone(true)
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const end = async () => {
+    setEnding(true); setError('')
+    try {
+      const d = await api('/pitch/debrief', { method: 'POST', body: { startup_id: data.startup.id, session_id: sessionId } })
+      setDebrief(d.debrief); setDone(true); setReadonly(true)
+      loadSessions()
+    } catch (e) { setError(e.message) } finally { setEnding(false) }
+  }
+
+  const openPast = (s) => {
+    setSessionId(s.session_id)
+    setMessages(s.messages.filter((m) => !m.meta?.debrief))
+    setDebrief(s.debrief)
+    const finished = !!s.debrief
+    setReadonly(finished)
+    setDone(finished || !!s.messages[s.messages.length - 1]?.meta?.done)
+  }
+
+  if (!hasBoard) {
+    return <div className="pt-10 text-center text-sm text-zinc-500">Convene the AI Board first — the investor grills you using the board&apos;s dossier of hard questions and unproven claims.</div>
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-[family-name:var(--font-grotesk)] text-xl font-bold text-white">Pitch Practice</h2>
+          <p className="text-xs text-zinc-500">A skeptical AI investor grills you with the board&apos;s hardest questions. Every answer gets rated.</p>
+        </div>
+        <div className="flex gap-2">
+          {sessionId && !readonly && answers >= 1 && !debrief && (
+            <Button data-testid="end-pitch" onClick={end} disabled={ending || busy} variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20">
+              {ending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Coach reviewing...</> : <><Trophy className="mr-2 h-4 w-4" /> End session &amp; get debrief</>}
+            </Button>
+          )}
+          {(!sessionId || debrief || readonly) && (
+            <Button data-testid="start-pitch" onClick={start} disabled={starting} className="bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">
+              {starting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Investor preparing...</> : <><Mic className="mr-2 h-4 w-4" /> {sessionId ? 'New practice session' : 'Start practice session'}</>}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {!sessionId && (
+        <div className={`${glass} p-6 text-center`}>
+          <Mic className="mx-auto h-8 w-8 text-emerald-400" />
+          <p className="mt-3 text-sm text-zinc-300">Rehearse before you face real investors.</p>
+          <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-zinc-500">
+            The AI investor has read every board report, every unproven claim and the critical objection. It will push where you are weakest — answer with numbers and evidence.
+          </p>
+        </div>
+      )}
+
+      {sessionId && (
+        <>
+          <div className={`${glass} max-h-[52vh] space-y-4 overflow-y-auto p-5`}>
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === 'user' ? 'bg-emerald-500/15 text-emerald-100 border border-emerald-500/20' : 'bg-white/5 text-zinc-200 border border-white/10'}`}>
+                  {m.role === 'assistant' && (
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-red-400">The Investor</span>
+                      {m.meta?.question_source && <span className="text-[10px] text-zinc-600">· {m.meta.question_source}</span>}
+                    </div>
+                  )}
+                  {m.role === 'assistant' && m.meta?.feedback && (
+                    <div className="mb-2 rounded-lg border border-white/10 bg-white/[0.04] p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Answer feedback</span>
+                        {m.meta.answer_rating != null && <Pill cls={ratingCls(m.meta.answer_rating)}>{m.meta.answer_rating}/10</Pill>}
+                      </div>
+                      <p className="mt-1 text-xs leading-relaxed text-zinc-400">{m.meta.feedback}</p>
+                    </div>
+                  )}
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {busy && <div className="flex justify-start"><div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-500"><Loader2 className="inline h-4 w-4 animate-spin" /> the investor is thinking...</div></div>}
+            <div ref={endRef} />
+          </div>
+
+          {debrief && <DebriefCard debrief={debrief} />}
+
+          {!done && !readonly && !debrief && (
+            <div className="flex gap-2">
+              <Textarea value={input} onChange={(e) => setInput(e.target.value)} rows={2} placeholder="Your answer to the investor..." disabled={busy || ending}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+                className="border-white/10 bg-white/5 text-white placeholder:text-zinc-600" />
+              <Button onClick={send} disabled={busy || ending || !input.trim()} className="h-auto bg-emerald-500 px-5 text-zinc-950 hover:bg-emerald-400"><Send className="h-4 w-4" /></Button>
+            </div>
+          )}
+          {done && !debrief && !readonly && (
+            <Button onClick={end} disabled={ending} className="w-full bg-amber-500 font-semibold text-zinc-950 hover:bg-amber-400">
+              {ending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Coach reviewing your session...</> : <><Trophy className="mr-2 h-4 w-4" /> End session &amp; get debrief</>}
+            </Button>
+          )}
+        </>
+      )}
+
+      {sessions?.length > 0 && (
+        <div className={`${glass} p-4`}>
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-500"><History className="h-3.5 w-3.5" /> Past sessions</div>
+          <ul className="space-y-1.5">
+            {sessions.map((s) => (
+              <li key={s.session_id}>
+                <button onClick={() => openPast(s)} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs text-zinc-400 hover:bg-white/5">
+                  <span>{new Date(s.started_at).toLocaleString()} · {s.messages.filter((m) => m.role === 'user').length} answers {s.session_id === sessionId ? '· (open)' : ''}</span>
+                  {s.debrief ? <span className={`font-bold ${scoreColor(s.debrief.overall_rating)}`}>{s.debrief.overall_rating}/100</span> : <span className="text-zinc-600">unfinished — click to resume</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------- Score milestones ----------------
+function milestonesFrom(history) {
+  const out = []
+  for (let i = 0; i < history.length; i++) {
+    const cur = history[i].overall
+    const prev = i > 0 ? history[i - 1].overall : null
+    if (i === 0) out.push({ key: `start-${i}`, label: 'First evidence-based assessment', score: cur, date: history[i].created_at, tone: 'text-sky-400', dot: 'bg-sky-500' })
+    if (prev != null && prev < 50 && cur >= 50) out.push({ key: `50-${i}`, label: 'Crossed 50 — Promising, needs validation', score: cur, date: history[i].created_at, tone: 'text-amber-400', dot: 'bg-amber-500' })
+    if (prev != null && prev < 75 && cur >= 75) out.push({ key: `75-${i}`, label: 'Crossed 75 — Ready for investor conversations', score: cur, date: history[i].created_at, tone: 'text-emerald-400', dot: 'bg-emerald-500' })
+  }
+  return out.reverse()
 }
 
 // ---------------- Dashboard ----------------
@@ -1037,13 +1408,20 @@ function DashboardView({ data, setTab, startAnalysis }) {
         </div>
         <div className={`${glass} p-5`}>
           <div className="mb-3 flex items-center justify-between">
-            <button onClick={() => setTab('evidence')} className="text-[11px] font-semibold uppercase tracking-widest text-amber-400 hover:underline">Pending evidence missions ({pending.length})</button>
+            <button onClick={() => setTab('evidence')} className="text-[11px] font-semibold uppercase tracking-widest text-amber-400 hover:underline">
+              Pending evidence missions ({pending.length}{pending.filter(isOverdue).length > 0 ? ` · ${pending.filter(isOverdue).length} overdue` : ''})
+            </button>
             <FlaskConical className="h-4 w-4 text-amber-400" />
           </div>
           {pending.length ? (
-            <ul className="space-y-2">{pending.slice(0, 4).map((m) => (
+            <ul className="space-y-2">{[...pending].sort((a, b) => (isOverdue(b) ? 1 : 0) - (isOverdue(a) ? 1 : 0)).slice(0, 4).map((m) => (
               <li key={m.id} className="flex items-center justify-between gap-2 text-sm text-zinc-300">
-                <span className="truncate">{m.title}</span><Pill cls={PRIORITY_STYLE[m.priority] || PRIORITY_STYLE.medium}>{m.priority}</Pill>
+                <span className="truncate">{m.title}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {isOverdue(m) && <Pill cls="bg-red-500/20 text-red-300 border-red-500/40">Overdue</Pill>}
+                  {m.due_date && !isOverdue(m) && <span className="text-[10px] text-zinc-500">{new Date(m.due_date + 'T00:00:00').toLocaleDateString()}</span>}
+                  <Pill cls={PRIORITY_STYLE[m.priority] || PRIORITY_STYLE.medium}>{m.priority}</Pill>
+                </span>
               </li>
             ))}</ul>
           ) : <p className="text-sm text-zinc-600">No open missions.</p>}
@@ -1071,6 +1449,7 @@ const NAV = [
   { key: 'profile', label: 'Startup Profile', Icon: FileText },
   { key: 'board', label: 'AI Board', Icon: Users },
   { key: 'evidence', label: 'Evidence Lab', Icon: FlaskConical },
+  { key: 'pitch', label: 'Pitch Practice', Icon: Mic },
   { key: 'readiness', label: 'Investor Readiness', Icon: Gauge },
 ]
 
@@ -1085,7 +1464,30 @@ function App() {
   const [error, setError] = useState('')
   const [analysis, setAnalysis] = useState(null) // null | { agents, stages }
   const [notice, setNotice] = useState('')
+  const [celebrate, setCelebrate] = useState(null) // null | { threshold, score, status }
   const [loadingData, setLoadingData] = useState(false)
+
+  // Score milestone celebration (once per threshold per startup)
+  useEffect(() => {
+    const h = data?.score_history || []
+    if (!activeId || h.length < 2) return
+    const prev = h[h.length - 2]?.overall
+    const cur = h[h.length - 1]?.overall
+    if (prev == null || cur == null) return
+    for (const t of [75, 50]) {
+      if (prev < t && cur >= t) {
+        const key = `pl-milestone-${activeId}-${t}`
+        if (typeof window !== 'undefined' && !localStorage.getItem(key)) {
+          localStorage.setItem(key, '1')
+          setCelebrate({ threshold: t, score: cur, status: t === 75 ? 'READY FOR EARLY-STAGE INVESTOR CONVERSATIONS' : 'PROMISING — NEEDS VALIDATION' })
+          confetti({ particleCount: 160, spread: 85, origin: { y: 0.6 }, colors: ['#10b981', '#f59e0b', '#ffffff'] })
+          setTimeout(() => confetti({ particleCount: 90, angle: 60, spread: 60, origin: { x: 0, y: 0.7 }, colors: ['#10b981', '#f59e0b'] }), 350)
+          setTimeout(() => confetti({ particleCount: 90, angle: 120, spread: 60, origin: { x: 1, y: 0.7 }, colors: ['#10b981', '#f59e0b'] }), 700)
+        }
+        break
+      }
+    }
+  }, [data?.score_history, activeId])
 
   const loadStartups = useCallback(async () => {
     try {
@@ -1188,10 +1590,26 @@ function App() {
             {tab === 'profile' && <ProfileView data={data} refresh={refresh} setError={setError} startAnalysis={startAnalysis} />}
             {tab === 'board' && <BoardView data={data} startAnalysis={startAnalysis} />}
             {tab === 'evidence' && <EvidenceLab data={data} refresh={refresh} setError={setError} />}
+            {tab === 'pitch' && <PitchView data={data} setError={setError} />}
             {tab === 'readiness' && <ReadinessView data={data} />}
           </>
         )}
       </main>
+
+      {celebrate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/85 backdrop-blur-sm" data-testid="milestone-celebration">
+          <div className={`${glass} w-full max-w-md border-amber-500/30 p-8 text-center`}>
+            <Trophy className="mx-auto h-12 w-12 text-amber-400" />
+            <h3 className="mt-4 font-[family-name:var(--font-grotesk)] text-2xl font-bold text-white">Milestone reached!</h3>
+            <p className="mt-2 text-sm text-zinc-300">
+              Your Investor Readiness Score crossed <span className={`font-bold ${celebrate.threshold >= 75 ? 'text-emerald-400' : 'text-amber-400'}`}>{celebrate.threshold}</span> — now at <span className="font-bold text-white">{celebrate.score}/100</span>
+            </p>
+            <Pill cls={`mt-4 ${celebrate.threshold >= 75 ? STATUS_META.validated.cls : STATUS_META.partially_validated.cls}`}>{celebrate.status}</Pill>
+            <p className="mt-4 text-xs leading-relaxed text-zinc-500">Earned with evidence, not promises. Keep proving.</p>
+            <Button onClick={() => setCelebrate(null)} className="mt-6 w-full bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">Keep going</Button>
+          </div>
+        </div>
+      )}
 
       {analysis && (
         <AnalysisRunner

@@ -26,13 +26,18 @@ Startup Idea → Founder Interview → Startup Profile → Specialist Analysis �
 - POST /api/missions/:id/submit; PUT /api/startups/:id/profile (change detection → affected agents)
 
 ## Status (June 2025)
-- Backend: FULLY TESTED end-to-end — all tasks PASSED (see /app/test_result.md)
-- Missions timeout FIXED: claims chunked into batches of 3, generated in parallel → HTTP 200 in ~50s (was 502 at 60s). Frontend AnalysisRunner also has a 502-resilience fallback (checks DB for pending missions on gateway error).
-- Smart Re-Analysis SHIPPED + TESTED: saving a profile edit auto-runs only affected specialists + Chairman (AnalysisRunner stages=['specialists','chairman']), auto-navigates to Readiness, emerald success notice (data-testid='smart-notice'), sidebar score refreshes.
-- Investor One-Pager Export SHIPPED + TESTED: openOnePager() in page.js — printable light-themed one-pager (new window, Print/Save-as-PDF), composed from profile + score + validated claims + chairman report, ZERO AI calls. Buttons on Readiness tab (data-testid='export-onepager') + Dashboard.
-- Frontend: FULLY TESTED (full War Room flow: landing → create → interview → profile → board → evidence → readiness → one-pager → smart re-analysis → dashboard). Demo startup "MealPrepPal" left in DB.
-- Known cosmetic nit (unfixed, trivial): smart re-analysis overlay stage description always lists "Market · Product · Business · Growth" even when only a subset runs.
+- Backend: FULLY TESTED — all tasks PASSED (see /app/test_result.md)
+- Missions timeout FIXED (parallel batches of 3, ~50s, HTTP 200) + frontend 502-resilience fallback
+- Smart Re-Analysis SHIPPED + TESTED (auto rerun affected specialists + Chairman on profile edit, success notice, sidebar refresh)
+- Investor One-Pager Export SHIPPED + TESTED (printable, zero AI calls)
+- Pitch Practice SHIPPED + TESTED: 'Pitch Practice' nav tab; AI investor (dossier built from board reports/claims/score) grills founder, rates each answer 1-10 with feedback, coach debrief (overall 0-100, strengths/weaknesses/coaching/best/worst), sessions persisted in pitch_messages table, past-session list with resume. Endpoints: POST /api/pitch/start, /api/pitch, /api/pitch/debrief; GET /api/pitch/:startupId
+- Score Milestones SHIPPED + TESTED: milestone timeline + next-milestone progress on Readiness tab (data-testid='milestones'); canvas-confetti celebration modal fires once per threshold (50/75) per startup (localStorage key pl-milestone-<id>-<t>)
+- Mission Reminders SHIPPED + TESTED: due_date column on evidence_missions (migration 002), date picker on mission cards, red Overdue pills in Evidence Lab + Dashboard ('N overdue' in header), PUT /api/missions/:id
+- Compare Versions SHIPPED + TESTED: Compare buttons in version history -> side-by-side red/green diff dialog with Score impact (before -> after + delta from score_history timestamps); GET /api/startups/:id/versions-full
+- Migrations: /app/supabase_schema.sql (001) + /app/supabase_migration_002.sql — both applied by user in Supabase SQL Editor
+- Demo startup "MealPrepPal" left in DB (has pitch sessions, overdue mission dated 2020-01-01, 3 profile versions)
+- Known cosmetic nit (unfixed, trivial): smart re-analysis overlay stage description always lists all 4 specialist names even when only a subset runs
 
 ## Backlog
-- P2: Modularize monolithic `page.js` (~1100 lines) and `proofloop.js`
+- P2: Modularize monolithic `page.js` (~1600 lines) and `proofloop.js`
 - Cosmetic: dynamic agent names in smart re-analysis overlay description

@@ -642,7 +642,7 @@ const isOverdue = (m) => m.due_date && ['pending', 'submitted'].includes(m.statu
 
 function EvidenceLab({ data, refresh, setError }) {
   const [submitFor, setSubmitFor] = useState(null)
-  const [form, setForm] = useState({ description: '', results: '', metrics: '', links: '', notes: '', image: '', imageName: '' })
+  const [form, setForm] = useState({ findings: '', link: '', image: '', imageName: '' })
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
   const [recalcing, setRecalcing] = useState(false)
@@ -650,7 +650,10 @@ function EvidenceLab({ data, refresh, setError }) {
   const [dateFor, setDateFor] = useState(null)
   const [dateVal, setDateVal] = useState('')
   const [savingDate, setSavingDate] = useState(false)
+  const [expandedTips, setExpandedTips] = useState({})
   const missions = data.missions || []
+
+  const toggleTips = (id) => setExpandedTips((prev) => ({ ...prev, [id]: !prev[id] }))
 
   const saveDate = async (m, value) => {
     setSavingDate(true); setError('')
@@ -662,14 +665,23 @@ function EvidenceLab({ data, refresh, setError }) {
   }
 
   const submit = async () => {
+    if (!form.findings.trim()) return
     setBusy(true); setError('')
     try {
-      const res = await api(`/missions/${submitFor.id}/submit`, { method: 'POST', body: form })
+      const payload = {
+        description: form.findings.trim(),
+        results: form.findings.trim(),
+        metrics: form.link ? `Link/Metrics: ${form.link.trim()}` : '',
+        links: form.link.trim(),
+        notes: '',
+        image: form.image,
+        imageName: form.imageName,
+      }
+      const res = await api(`/missions/${submitFor.id}/submit`, { method: 'POST', body: payload })
       setResult(res)
       setSubmitFor(null)
-      setForm({ description: '', results: '', metrics: '', links: '', notes: '', image: '', imageName: '' })
+      setForm({ findings: '', link: '', image: '', imageName: '' })
       await refresh()
-      // auto re-run chairman -> new readiness score (the loop closes)
       setRecalcing(true)
       try { await api('/analyze/chairman', { method: 'POST', body: { startup_id: data.startup.id } }); await refresh() } catch {}
       setRecalcing(false)
@@ -677,7 +689,7 @@ function EvidenceLab({ data, refresh, setError }) {
   }
 
   if (!missions.length) {
-    return <div className="pt-10 text-center text-sm text-zinc-500">No evidence missions yet. Convene the AI Board first — the Critic will generate claims and the Evidence Agent will create missions.</div>
+    return <div className="pt-10 text-center text-sm text-zinc-500">No feasibility tests yet. Convene the AI Board first to generate quick tests for your idea.</div>
   }
 
   const openMissions = missions.filter((m) => m.status === 'pending' || m.status === 'submitted')
@@ -686,43 +698,62 @@ function EvidenceLab({ data, refresh, setError }) {
   const MissionCard = ({ m, isEvaluated = false }) => {
     const ev = m.evaluations?.[m.evaluations.length - 1]
     const sub = m.submissions?.[m.submissions.length - 1]
+    const tipsOpen = Boolean(expandedTips[m.id])
 
     return (
-      <div className={`${glass} flex flex-col p-5`}>
+      <div className={`${glass} flex flex-col p-4 sm:p-5 transition hover:border-white/20`}>
         <div className="flex items-start justify-between gap-2">
-          <h3 className="text-sm font-semibold text-white">{m.title}</h3>
+          <div>
+            <h3 className="text-sm font-semibold text-white">{m.title}</h3>
+            <p className="mt-1 text-xs text-zinc-400 leading-relaxed">{m.description || m.claim}</p>
+          </div>
           <div className="flex shrink-0 flex-col items-end gap-1.5">
             <Pill cls={PRIORITY_STYLE[m.priority] || PRIORITY_STYLE.medium}>{m.priority}</Pill>
             <StatusPill status={m.status} />
             {isOverdue(m) && <Pill cls="bg-red-500/20 text-red-300 border-red-500/40">Overdue</Pill>}
           </div>
         </div>
-        {m.is_followup && <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-sky-400">Follow-up mission</span>}
-        <div className="mt-3 space-y-3 text-sm flex-1">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Claim under test</div>
-            <p className="mt-0.5 italic text-zinc-400">&ldquo;{m.claim}&rdquo;</p>
-          </div>
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Task · {m.task_type?.replace(/_/g, ' ')}</div>
-            <p className="mt-0.5 leading-relaxed text-zinc-300">{m.description}</p>
-          </div>
-          {m.instructions?.length > 0 && (
-            <ul className="space-y-1">
-              {m.instructions.map((it, i) => <li key={i} className="flex gap-2 text-xs text-zinc-400"><span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-zinc-600" />{it}</li>)}
-            </ul>
+
+        {m.is_followup && <span className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-sky-400">💡 Follow-up test</span>}
+
+        <div className="mt-3 space-y-2 text-xs flex-1">
+          {/* Target Goal */}
+          {m.success_criteria && (
+            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1.5 text-emerald-300">
+              <span className="font-semibold text-emerald-400">Target Goal:</span> {m.success_criteria}
+            </div>
           )}
-          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2.5">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-emerald-500">Success criteria</div>
-            <p className="mt-0.5 text-xs text-emerald-200/80">{m.success_criteria}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs" data-testid={`due-row-${m.id}`}>
-            <CalendarClock className={`h-3.5 w-3.5 ${isOverdue(m) ? 'text-red-400' : 'text-zinc-500'}`} />
+
+          {/* Expandable Quick Steps */}
+          {m.instructions?.length > 0 && !isEvaluated && (
+            <div>
+              <button
+                type="button"
+                onClick={() => toggleTips(m.id)}
+                className="text-[11px] font-medium text-sky-400 hover:text-sky-300 transition"
+              >
+                {tipsOpen ? '▾ Hide quick steps' : '▸ View 3 quick steps'}
+              </button>
+              {tipsOpen && (
+                <ul className="mt-1.5 space-y-1 rounded border border-white/10 bg-white/5 p-2 text-zinc-300">
+                  {m.instructions.map((it, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="text-emerald-400 font-bold">{i + 1}.</span> {it}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Inline Target Date */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]" data-testid={`due-row-${m.id}`}>
+            <CalendarClock className={`h-3 w-3 ${isOverdue(m) ? 'text-red-400' : 'text-zinc-500'}`} />
             {dateFor === m.id ? (
               <>
-                <Input type="date" value={dateVal} onChange={(e) => setDateVal(e.target.value)} className="h-7 w-36 border-white/10 bg-white/5 text-xs text-white" />
-                <Button size="sm" onClick={() => saveDate(m, dateVal)} disabled={savingDate || !dateVal} className="h-7 bg-emerald-500 px-2.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400">{savingDate ? '...' : 'Save'}</Button>
-                {m.due_date && <Button size="sm" variant="outline" onClick={() => saveDate(m, null)} disabled={savingDate} className="h-7 border-white/15 bg-transparent px-2.5 text-xs text-zinc-400 hover:bg-white/5">Clear</Button>}
+                <Input type="date" value={dateVal} onChange={(e) => setDateVal(e.target.value)} className="h-6 w-32 border-white/10 bg-white/5 text-[11px] text-white" />
+                <Button size="sm" onClick={() => saveDate(m, dateVal)} disabled={savingDate || !dateVal} className="h-6 bg-emerald-500 px-2 text-[11px] font-semibold text-zinc-950 hover:bg-emerald-400">{savingDate ? '...' : 'Save'}</Button>
+                {m.due_date && <Button size="sm" variant="outline" onClick={() => saveDate(m, null)} disabled={savingDate} className="h-6 border-white/15 bg-transparent px-2 text-[11px] text-zinc-400 hover:bg-white/5">Clear</Button>}
                 <button onClick={() => setDateFor(null)} className="text-zinc-600 hover:text-zinc-400">cancel</button>
               </>
             ) : m.due_date ? (
@@ -736,18 +767,20 @@ function EvidenceLab({ data, refresh, setError }) {
               </>
             ) : m.status === 'pending' ? (
               <button onClick={() => { setDateFor(m.id); setDateVal('') }} className="text-zinc-500 underline-offset-2 hover:text-emerald-400 hover:underline">Set target date</button>
-            ) : <span className="text-zinc-700">no target date</span>}
+            ) : null}
           </div>
+
+          {/* Evaluated Feasibility Result Card */}
           {ev && (
-            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+            <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">Evaluation Result</span>
-                <span className={`text-xs font-bold ${scoreColor(ev.confidence)}`}>{ev.confidence}/100 confidence</span>
+                <span className="text-[11px] font-semibold text-emerald-400">Feasibility Signal</span>
+                <span className={`text-xs font-bold ${scoreColor(ev.confidence)}`}>{ev.confidence}% signal</span>
               </div>
-              <p className="text-xs leading-relaxed text-zinc-300">{ev.evaluation?.reasoning}</p>
-              {ev.evaluation?.does_not_prove && (
-                <div className="rounded bg-red-500/10 border border-red-500/20 p-2 text-xs text-red-300">
-                  <span className="font-semibold text-red-400">Why proof was insufficient:</span> {ev.evaluation.does_not_prove}
+              <p className="text-xs text-zinc-200 leading-relaxed">{ev.evaluation?.reasoning}</p>
+              {ev.evaluation?.next_step && (
+                <div className="rounded bg-sky-500/10 border border-sky-500/20 px-2.5 py-1.5 text-xs text-sky-200">
+                  <span className="font-semibold text-sky-400">Next Step:</span> {ev.evaluation.next_step}
                 </div>
               )}
               {sub?.links && sub.links.includes('[Image Attachment:') && (
@@ -758,9 +791,10 @@ function EvidenceLab({ data, refresh, setError }) {
             </div>
           )}
         </div>
+
         {!isEvaluated && m.status === 'pending' && (
-          <Button onClick={() => { setSubmitFor(m); setResult(null) }} size="sm" className="mt-4 bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">
-            <FlaskConical className="mr-2 h-3.5 w-3.5" /> Submit Evidence
+          <Button onClick={() => { setSubmitFor(m); setResult(null) }} size="sm" className="mt-3 bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">
+            <FlaskConical className="mr-1.5 h-3.5 w-3.5" /> Submit Quick Findings
           </Button>
         )}
       </div>
@@ -768,24 +802,24 @@ function EvidenceLab({ data, refresh, setError }) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-[family-name:var(--font-grotesk)] text-xl font-bold text-white">Evidence Lab</h2>
-          <p className="text-xs text-zinc-500">Complete missions in the real world, submit evidence, and the Evidence Agent will judge it.</p>
+          <h2 className="font-[family-name:var(--font-grotesk)] text-xl font-bold text-white">Idea Feasibility Lab</h2>
+          <p className="text-xs text-zinc-400">Quick, low-effort tests to see if your idea is feasible and what customers actually want.</p>
         </div>
         <div className="flex rounded-lg border border-white/10 bg-white/5 p-1 text-xs">
           <button
             onClick={() => setFilter('open')}
             className={`rounded px-3 py-1 font-medium transition ${filter === 'open' ? 'bg-emerald-500 text-zinc-950 font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
           >
-            Open Missions ({openMissions.length})
+            Quick Tests ({openMissions.length})
           </button>
           <button
             onClick={() => setFilter('evaluated')}
             className={`rounded px-3 py-1 font-medium transition ${filter === 'evaluated' ? 'bg-emerald-500 text-zinc-950 font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
           >
-            Completed &amp; Evaluated ({evaluatedMissions.length})
+            Tested Signals ({evaluatedMissions.length})
           </button>
           <button
             onClick={() => setFilter('all')}
@@ -797,59 +831,71 @@ function EvidenceLab({ data, refresh, setError }) {
       </div>
 
       {recalcing && (
-        <div className={`${glass} flex items-center gap-3 border-emerald-500/20 p-4 text-sm text-emerald-300`}>
-          <Loader2 className="h-4 w-4 animate-spin" /> Evidence accepted — the Chairman is re-assessing and updating your Investor Readiness Score...
+        <div className={`${glass} flex items-center gap-3 border-emerald-500/20 p-3.5 text-xs text-emerald-300`}>
+          <Loader2 className="h-4 w-4 animate-spin" /> Assessing your new findings &amp; updating feasibility score...
         </div>
       )}
 
       {(filter === 'open' || filter === 'all') && openMissions.length > 0 && (
         <div>
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-sky-400">Open missions needing evidence ({openMissions.length})</div>
-          <div className="grid gap-4 md:grid-cols-2">{openMissions.map((m) => <MissionCard key={m.id} m={m} isEvaluated={false} />)}</div>
+          <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-sky-400">Open Feasibility Tests ({openMissions.length})</div>
+          <div className="grid gap-3.5 md:grid-cols-2">{openMissions.map((m) => <MissionCard key={m.id} m={m} isEvaluated={false} />)}</div>
         </div>
       )}
 
       {(filter === 'open' && openMissions.length === 0) && (
         <div className={`${glass} p-8 text-center text-sm text-zinc-400`}>
           <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-400 mb-2" />
-          All current missions have been submitted and evaluated! Check the &ldquo;Completed &amp; Evaluated&rdquo; tab or your Investor Readiness tab.
+          You&apos;ve completed all current quick tests! Check the &ldquo;Tested Signals&rdquo; tab or your Investor Readiness score.
         </div>
       )}
 
       {(filter === 'evaluated' || filter === 'all') && evaluatedMissions.length > 0 && (
         <div>
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-emerald-400">Completed &amp; evaluated proof ({evaluatedMissions.length})</div>
-          <div className="grid gap-4 md:grid-cols-2">{evaluatedMissions.map((m) => <MissionCard key={m.id} m={m} isEvaluated={true} />)}</div>
+          <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-emerald-400">Tested Feasibility Results ({evaluatedMissions.length})</div>
+          <div className="grid gap-3.5 md:grid-cols-2">{evaluatedMissions.map((m) => <MissionCard key={m.id} m={m} isEvaluated={true} />)}</div>
         </div>
       )}
 
       {(filter === 'evaluated' && evaluatedMissions.length === 0) && (
         <div className={`${glass} p-8 text-center text-sm text-zinc-400`}>
-          No missions submitted yet. Submit evidence on an open mission to see evaluation results here.
+          No tests submitted yet. Submit findings on a quick test above to see feasibility feedback here.
         </div>
       )}
 
+      {/* Lightweight 1-Box Submission Modal */}
       <Dialog open={!!submitFor} onOpenChange={(v) => !v && setSubmitFor(null)}>
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto border-white/10 bg-zinc-950 text-zinc-100">
-          <DialogHeader><DialogTitle className="text-white">Submit Evidence — {submitFor?.title}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            {[
-              ['description', 'What did you do?', 'e.g. Interviewed 20 engineering students at 3 universities over 2 weeks'],
-              ['results', 'Results / findings', 'e.g. 18 of 20 students reported difficulty gaining real-world experience'],
-              ['metrics', 'Numbers / metrics', 'e.g. 20 interviews, 18 confirmed problem, avg pain score 8.2/10'],
-              ['links', 'Links (optional)', 'e.g. survey results, recordings, landing page'],
-              ['notes', 'Notes (optional)', 'Anything else the evaluator should know'],
-            ].map(([k, label, ph]) => (
-              <div key={k}>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-500">{label}</label>
-                <Textarea value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} rows={k === 'description' || k === 'results' ? 3 : 2}
-                  placeholder={ph} className="border-white/10 bg-white/5 text-sm text-white placeholder:text-zinc-600" />
+        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto border-white/10 bg-zinc-950 text-zinc-100">
+          <DialogHeader>
+            <DialogTitle className="text-white text-base">Submit Quick Findings</DialogTitle>
+            <p className="text-xs text-zinc-400">{submitFor?.title}</p>
+          </DialogHeader>
+
+          <div className="space-y-3.5 pt-1">
+            {/* Target Goal Reminder */}
+            {submitFor?.success_criteria && (
+              <div className="rounded bg-emerald-500/10 border border-emerald-500/20 p-2 text-xs text-emerald-300">
+                <span className="font-semibold text-emerald-400">Goal:</span> {submitFor.success_criteria}
               </div>
-            ))}
-            
+            )}
+
+            {/* Main Input Box */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-zinc-300">
+                What did you learn or discover? <span className="text-emerald-400">*</span>
+              </label>
+              <Textarea
+                value={form.findings}
+                onChange={(e) => setForm({ ...form, findings: e.target.value })}
+                rows={4}
+                placeholder="e.g. Talked to 8 college students. 6 confirmed they need this for projects, and 2 asked to pre-order."
+                className="border-white/10 bg-white/5 text-sm text-white placeholder:text-zinc-600 focus:border-emerald-500"
+              />
+            </div>
+
             {/* Optional Image Upload (.jpg / .png) */}
             <div>
-              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-500">Proof Screenshot / Photo (.jpg, .png) — Optional</label>
+              <label className="mb-1 block text-xs font-medium text-zinc-400">Attach Screenshot / Photo (Optional)</label>
               <Input
                 type="file"
                 accept="image/png,image/jpeg,image/jpg,image/webp"
@@ -867,52 +913,69 @@ function EvidenceLab({ data, refresh, setError }) {
               {form.image && (
                 <div className="mt-2 flex items-center justify-between rounded border border-white/10 bg-white/5 p-2">
                   <div className="flex items-center gap-2 overflow-hidden">
-                    <img src={form.image} alt="Preview" className="h-10 w-10 shrink-0 rounded object-cover" />
-                    <span className="truncate text-xs text-zinc-300">{form.imageName || 'Attached proof image'}</span>
+                    <img src={form.image} alt="Preview" className="h-9 w-9 shrink-0 rounded object-cover" />
+                    <span className="truncate text-xs text-zinc-300">{form.imageName || 'Attached image'}</span>
                   </div>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setForm((f) => ({ ...f, image: '', imageName: '' }))} className="h-7 text-xs text-red-400 hover:text-red-300">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setForm((f) => ({ ...f, image: '', imageName: '' }))} className="h-6 text-xs text-red-400 hover:text-red-300">
                     Remove
                   </Button>
                 </div>
               )}
             </div>
 
-            <p className="text-[11px] text-zinc-600">Your submission is self-reported and will be evaluated as founder-provided evidence.</p>
-            <Button onClick={submit} disabled={busy || !form.description.trim()} className="w-full bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">
-              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Evidence Agent evaluating...</> : 'Submit for evaluation'}
+            {/* Optional Link / Metrics */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-zinc-400">Link or Numbers (Optional)</label>
+              <Input
+                value={form.link}
+                onChange={(e) => setForm({ ...form, link: e.target.value })}
+                placeholder="e.g. Survey link, landing page, or numbers"
+                className="border-white/10 bg-white/5 text-xs text-white placeholder:text-zinc-600"
+              />
+            </div>
+
+            <Button onClick={submit} disabled={busy || !form.findings.trim()} className="w-full bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400 h-10">
+              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Evaluating Feasibility...</> : 'Check Idea Feasibility 🚀'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* Friendly Feasibility Feedback Modal */}
       <Dialog open={!!result} onOpenChange={(v) => !v && setResult(null)}>
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto border-white/10 bg-zinc-950 text-zinc-100">
+        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto border-white/10 bg-zinc-950 text-zinc-100">
           {result && (
             <>
-              <DialogHeader><DialogTitle className="text-white">Evidence Evaluation</DialogTitle></DialogHeader>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <StatusPill status={(result.evaluation?.status || 'UNPROVEN').toLowerCase()} />
-                  <span className={`text-lg font-bold ${scoreColor(result.evaluation?.confidence || 0)}`}>{result.evaluation?.confidence}/100</span>
+              <DialogHeader>
+                <DialogTitle className="text-white text-base">Feasibility Feedback</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3.5 pt-1 text-xs">
+                <div className="flex items-center justify-between rounded-lg bg-white/5 p-3 border border-white/10">
+                  <span className="font-semibold text-zinc-200">Idea Feasibility Signal</span>
+                  <span className={`text-sm font-bold ${scoreColor(result.evaluation?.confidence || 0)}`}>
+                    {result.evaluation?.confidence || 0}% Signal
+                  </span>
                 </div>
-                {[
-                  ['What this proves', result.evaluation?.evaluation?.proves],
-                  ['What it does NOT prove', result.evaluation?.evaluation?.does_not_prove],
-                  ['Evidence quality', result.evaluation?.evaluation?.quality],
-                  ['Reasoning', result.evaluation?.evaluation?.reasoning],
-                ].map(([t, v]) => v ? (
-                  <div key={t}>
-                    <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">{t}</div>
-                    <p className="mt-1 text-sm leading-relaxed text-zinc-300">{v}</p>
-                  </div>
-                ) : null)}
-                {result.followup && (
-                  <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-widest text-sky-400">Follow-up mission created</div>
-                    <p className="mt-1 text-sm text-sky-200">{result.followup.title}</p>
+
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">Feasibility Verdict</div>
+                  <p className="text-xs text-zinc-200 leading-relaxed bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded">
+                    {result.evaluation?.evaluation?.reasoning || result.evaluation?.evaluation?.proves}
+                  </p>
+                </div>
+
+                {result.evaluation?.evaluation?.next_step && (
+                  <div className="space-y-1">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-sky-400">Recommended Next Move</div>
+                    <p className="text-xs text-zinc-200 leading-relaxed bg-sky-500/10 border border-sky-500/20 p-2.5 rounded">
+                      {result.evaluation?.evaluation?.next_step}
+                    </p>
                   </div>
                 )}
-                <Button onClick={() => setResult(null)} className="w-full bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">Back to Evidence Lab</Button>
+
+                <Button onClick={() => setResult(null)} className="w-full bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400 h-9 mt-2">
+                  Done
+                </Button>
               </div>
             </>
           )}
@@ -1448,7 +1511,7 @@ const NAV = [
   { key: 'interview', label: 'Founder Interview', Icon: MessageSquare },
   { key: 'profile', label: 'Startup Profile', Icon: FileText },
   { key: 'board', label: 'AI Board', Icon: Users },
-  { key: 'evidence', label: 'Evidence Lab', Icon: FlaskConical },
+  { key: 'evidence', label: 'Feasibility Lab', Icon: FlaskConical },
   { key: 'pitch', label: 'Pitch Practice', Icon: Mic },
   { key: 'readiness', label: 'Investor Readiness', Icon: Gauge },
 ]

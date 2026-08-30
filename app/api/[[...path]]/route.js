@@ -87,7 +87,18 @@ export async function GET(request, ctx) {
       const id = path[1]
       const startup = await getStartup(id)
       const profileRow = await getProfileRow(id)
-      const interview = await getInterview(id)
+      let interview = await getInterview(id)
+      if (!interview || interview.length === 0) {
+        let firstQ = `Welcome to YStart-AI! For "${startup.name}", who is your specific target customer and what is the biggest pain point you are solving for them?`
+        try {
+          const turn = await interviewTurn(startup, [])
+          if (turn?.question) firstQ = turn.question
+        } catch (e) {
+          console.warn('Auto-init interview question error:', e.message)
+        }
+        await q(db.from('interview_messages').insert({ startup_id: id, role: 'assistant', content: firstQ }).select())
+        interview = await getInterview(id)
+      }
       const reports = await getLatestReports(id)
       const claims = await getClaims(id)
       const missions = await getMissions(id)
@@ -165,6 +176,26 @@ export async function POST(request, ctx) {
       }
       await q(db.from('interview_messages').insert({ startup_id: startup.id, role: 'assistant', content: question }).select())
       return json({ startup, first_question: question, progress })
+    }
+
+    // Initialize or fetch opening interview question
+    if (path[0] === 'interview' && path[1] === 'init') {
+      const { startup_id } = body
+      if (!startup_id) return err('startup_id is required', 400)
+      const startup = await getStartup(startup_id)
+      let history = await getInterview(startup_id)
+      if (!history || history.length === 0) {
+        let firstQ = `Welcome to YStart-AI! For "${startup.name}", who is your specific target customer and what is the biggest pain point you are solving for them?`
+        try {
+          const turn = await interviewTurn(startup, [])
+          if (turn?.question) firstQ = turn.question
+        } catch (e) {
+          console.warn('AI first question fallback:', e.message)
+        }
+        await q(db.from('interview_messages').insert({ startup_id, role: 'assistant', content: firstQ }).select())
+        history = await getInterview(startup_id)
+      }
+      return json({ interview: history })
     }
 
     // Interview turn

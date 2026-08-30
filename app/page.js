@@ -177,7 +177,34 @@ function InterviewView({ data, refresh, setTab, setError }) {
   const [done, setDone] = useState(false)
   const endRef = useRef(null)
 
-  useEffect(() => { setMessages(data.interview || []) }, [data.interview])
+  useEffect(() => {
+    if (data.interview && data.interview.length > 0) {
+      setMessages(data.interview)
+    } else if (data.startup?.id) {
+      // Auto-initialize if interview has no messages yet
+      setBusy(true)
+      api('/interview/init', { method: 'POST', body: { startup_id: data.startup.id } })
+        .then((res) => {
+          if (res.interview?.length) setMessages(res.interview)
+          else {
+            setMessages([{
+              id: 'init-fallback',
+              role: 'assistant',
+              content: `Welcome to YStart-AI! For "${data.startup?.name}", who is your specific target customer and what is the biggest pain point you solve for them?`
+            }])
+          }
+        })
+        .catch(() => {
+          setMessages([{
+            id: 'init-fallback',
+            role: 'assistant',
+            content: `Welcome to YStart-AI! For "${data.startup?.name}", who is your specific target customer and what is the biggest pain point you solve for them?`
+          }])
+        })
+        .finally(() => setBusy(false))
+    }
+  }, [data.interview, data.startup?.id, data.startup?.name])
+
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, busy])
 
   const answers = messages.filter((m) => m.role === 'user').length
@@ -186,10 +213,10 @@ function InterviewView({ data, refresh, setTab, setError }) {
     const text = input.trim()
     if (!text || busy) return
     setInput(''); setBusy(true); setError('')
-    setMessages((m) => [...m, { id: 'tmp-u', role: 'user', content: text }])
+    setMessages((m) => [...m, { id: `tmp-u-${Date.now()}`, role: 'user', content: text }])
     try {
       const turn = await api('/interview', { method: 'POST', body: { startup_id: data.startup.id, message: text } })
-      setMessages((m) => [...m, { id: 'tmp-a', role: 'assistant', content: turn.question }])
+      setMessages((m) => [...m, { id: `tmp-a-${Date.now()}`, role: 'assistant', content: turn.question }])
       setProgress(turn.progress || 0)
       if (turn.done) setDone(true)
     } catch (e) { setError(e.message) } finally { setBusy(false) }
@@ -206,7 +233,7 @@ function InterviewView({ data, refresh, setTab, setError }) {
 
   return (
     <div className="mx-auto flex h-[calc(100vh-120px)] max-w-3xl flex-col">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between">
         <div>
           <h2 className="font-[family-name:var(--font-grotesk)] text-xl font-bold text-white">Founder Interview</h2>
           <p className="text-xs text-zinc-500">The interviewer digs into your idea one question at a time.</p>
@@ -216,6 +243,14 @@ function InterviewView({ data, refresh, setTab, setError }) {
           <span className="text-xs text-zinc-500">{answers} answers</span>
         </div>
       </div>
+
+      {data.startup?.idea && (
+        <div className="mb-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2 text-xs text-zinc-300">
+          <span className="font-semibold text-emerald-400">💡 Evaluating Startup Concept: </span>
+          <span className="font-medium text-white">{data.startup?.name}</span> — {data.startup?.idea}
+        </div>
+      )}
+
       <div className={`${glass} flex-1 space-y-4 overflow-y-auto p-5`}>
         {messages.map((m, i) => (
           <div key={m.id || i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -226,7 +261,7 @@ function InterviewView({ data, refresh, setTab, setError }) {
           </div>
         ))}
         {busy && (
-          <div className="flex justify-start"><div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-500"><Loader2 className="inline h-4 w-4 animate-spin" /> thinking...</div></div>
+          <div className="flex justify-start"><div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-500"><Loader2 className="inline h-4 w-4 animate-spin" /> analyzing your idea...</div></div>
         )}
         <div ref={endRef} />
       </div>

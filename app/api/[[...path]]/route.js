@@ -73,7 +73,7 @@ async function runChairmanAndScore(startupId) {
 export async function GET(request, ctx) {
   try {
     const { path = [] } = await ctx.params
-    if (path.length === 0) return json({ ok: true, service: 'ProofLoop API' })
+    if (path.length === 0) return json({ ok: true, service: 'YStart-AI API' })
 
     if (path[0] === 'startups' && path.length === 1) {
       const startups = await q(db.from('startups').select('*').order('created_at', { ascending: false }))
@@ -149,11 +149,22 @@ export async function POST(request, ctx) {
     if (path[0] === 'startups' && path.length === 1) {
       const name = str(body.name).trim()
       const idea = str(body.idea).trim()
+      const stage = str(body.stage).trim() || 'interview'
       if (!name || !idea) return err('name and idea are required', 400)
-      const startup = await q(db.from('startups').insert({ name, idea, stage: 'interview' }).select().single())
-      const turn = await interviewTurn(startup, [])
-      await q(db.from('interview_messages').insert({ startup_id: startup.id, role: 'assistant', content: turn.question }).select())
-      return json({ startup, first_question: turn.question, progress: turn.progress })
+      const startup = await q(db.from('startups').insert({ name, idea, stage }).select().single())
+      let question = `Welcome to YStart-AI! Who is your main target customer, and what problem do you solve for them?`
+      let progress = 10
+      try {
+        const turn = await interviewTurn(startup, [])
+        if (turn?.question) {
+          question = turn.question
+          progress = turn.progress || 10
+        }
+      } catch (e) {
+        console.warn('AI first question fallback:', e.message)
+      }
+      await q(db.from('interview_messages').insert({ startup_id: startup.id, role: 'assistant', content: question }).select())
+      return json({ startup, first_question: question, progress })
     }
 
     // Interview turn
@@ -321,13 +332,21 @@ export async function POST(request, ctx) {
       const mission = await q(db.from('evidence_missions').select('*').eq('id', missionId).single())
       const claim = mission.claim_id ? await q(db.from('claims').select('*').eq('id', mission.claim_id).single()) : { claim: mission.claim, criticism: '' }
       const profileRow = await getProfileRow(mission.startup_id)
+      
+      const hasImage = Boolean(body.image)
+      const imageNote = hasImage ? `[Image Attachment: ${str(body.imageName) || 'proof.png'}]` : ''
+      const combinedLinks = [str(body.links), imageNote].filter(Boolean).join('\n')
+      const combinedNotes = [str(body.notes), hasImage && body.image ? `DATA_URI:${str(body.image).slice(0, 100)}...` : ''].filter(Boolean).join('\n')
+
       const submission = await q(db.from('evidence_submissions').insert({
         mission_id: missionId, startup_id: mission.startup_id,
         description: str(body.description), results: str(body.results), metrics: str(body.metrics),
-        links: str(body.links), notes: str(body.notes),
+        links: combinedLinks, notes: combinedNotes,
       }).select().single())
       await q(db.from('evidence_missions').update({ status: 'submitted', updated_at: new Date().toISOString() }).eq('id', missionId).select())
-      const evaluation = await evaluateEvidence(profileRow?.profile || {}, mission, claim, submission)
+      
+      const evalInput = { ...submission, has_image: hasImage, image: body.image }
+      const evaluation = await evaluateEvidence(profileRow?.profile || {}, mission, claim, evalInput)
       const evalRow = await q(db.from('evidence_evaluations').insert({
         mission_id: missionId, submission_id: submission.id, startup_id: mission.startup_id,
         status: evaluation.status, confidence: evaluation.confidence, evaluation,

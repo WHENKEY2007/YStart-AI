@@ -5,8 +5,8 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const grotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-grotesk' })
 
 export const metadata = {
-  title: "ProofLoop — Don't pitch assumptions. Prove them.",
-  description: 'An AI-powered startup validation board that challenges your assumptions, creates evidence missions, and helps you build an investor-ready startup.',
+  title: "YStart-AI — Don't pitch assumptions. Prove them.",
+  description: 'AI-powered startup validation platform that tests your idea, finds proof, and builds investor readiness.',
 }
 
 export default function RootLayout({ children }) {

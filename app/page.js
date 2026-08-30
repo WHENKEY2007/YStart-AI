@@ -39,9 +39,9 @@ const PRIORITY_STYLE = {
   low: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30',
 }
 const STATUS_META = {
-  unproven: { label: 'Unproven', cls: 'bg-red-500/15 text-red-400 border-red-500/30', Icon: CircleDot },
-  pending: { label: 'Unproven', cls: 'bg-red-500/15 text-red-400 border-red-500/30', Icon: CircleDot },
+  pending: { label: 'Open Mission', cls: 'bg-sky-500/15 text-sky-400 border-sky-500/30', Icon: CircleDot },
   submitted: { label: 'Under Review', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30', Icon: Loader2 },
+  unproven: { label: 'Needs Stronger Proof', cls: 'bg-red-500/15 text-red-400 border-red-500/30', Icon: AlertTriangle },
   partially_validated: { label: 'Partially Validated', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30', Icon: AlertTriangle },
   validated: { label: 'Validated', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', Icon: CheckCircle2 },
   rejected: { label: 'Rejected', cls: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30', Icon: XCircle },
@@ -89,20 +89,19 @@ function Landing({ onEnter }) {
       </div>
       <div className="relative z-10 mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 text-center">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-medium text-emerald-400">
-          <Shield className="h-3.5 w-3.5" /> AI-Powered Startup Validation Board
+          <Shield className="h-3.5 w-3.5" /> AI Startup Validation Platform
         </div>
         <h1 className="font-[family-name:var(--font-grotesk)] text-6xl font-bold tracking-tight text-white md:text-8xl">
-          Proof<span className="text-emerald-400">Loop</span>
+          YStart<span className="text-emerald-400">-AI</span>
         </h1>
         <p className="mt-6 text-2xl font-semibold text-zinc-200 md:text-3xl">
           Don&apos;t pitch assumptions. <span className="text-emerald-400">Prove them.</span>
         </p>
         <p className="mt-6 max-w-2xl text-base leading-relaxed text-zinc-400">
-          An AI-powered startup validation board that challenges your assumptions, creates evidence
-          missions, and helps you build an investor-ready startup.
+          AI board that tests your startup idea, gives you clear evidence missions, and scores your investor readiness.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3 text-xs text-zinc-500">
-          {['CLAIM', 'CHALLENGE', 'EVIDENCE TASK', 'FOUNDER ACTION', 'EVALUATION', 'VALIDATION'].map((s, i, a) => (
+          {['IDEA', 'AI INTERVIEW', 'AI BOARD', 'REAL PROOF', 'EVALUATION', 'INVESTOR SCORE'].map((s, i, a) => (
             <span key={s} className="flex items-center gap-3">
               <span className="rounded border border-white/10 bg-white/5 px-2.5 py-1 font-mono tracking-wider">{s}</span>
               {i < a.length - 1 && <ChevronRight className="h-3 w-3 text-emerald-500" />}
@@ -110,12 +109,8 @@ function Landing({ onEnter }) {
           ))}
         </div>
         <Button onClick={onEnter} size="lg" className="mt-12 h-14 bg-emerald-500 px-10 text-base font-semibold text-zinc-950 hover:bg-emerald-400">
-          Enter the War Room <ArrowRight className="ml-2 h-5 w-5" />
+          Start Validating <ArrowRight className="ml-2 h-5 w-5" />
         </Button>
-        <p className="mt-10 max-w-xl text-[11px] leading-relaxed text-zinc-600">
-          The Investor Readiness Score is an evidence-based readiness assessment. It does not guarantee
-          investment. Founder-submitted evidence is labeled as founder-provided unless independently verified.
-        </p>
       </div>
     </div>
   )
@@ -125,11 +120,15 @@ function Landing({ onEnter }) {
 function CreateStartup({ onCreated, busy, setBusy, setError }) {
   const [name, setName] = useState('')
   const [idea, setIdea] = useState('')
+  const [industry, setIndustry] = useState('')
+  const [stage, setStage] = useState('Idea / Concept')
+
   const submit = async () => {
     if (!name.trim() || !idea.trim()) return
     setBusy(true); setError('')
     try {
-      const data = await api('/startups', { method: 'POST', body: { name, idea } })
+      const fullIdea = industry.trim() ? `[Industry: ${industry.trim()}] ${idea.trim()}` : idea.trim()
+      const data = await api('/startups', { method: 'POST', body: { name: name.trim(), idea: fullIdea, stage } })
       onCreated(data.startup)
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -146,6 +145,16 @@ function CreateStartup({ onCreated, busy, setBusy, setError }) {
           <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-zinc-500">Startup Idea / Description</label>
             <Textarea value={idea} onChange={(e) => setIdea(e.target.value)} rows={5} placeholder="e.g. An AI-powered platform that helps engineering students gain real-world experience through industry projects." className="border-white/10 bg-white/5 text-white placeholder:text-zinc-600" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-zinc-500">Industry (Optional)</label>
+              <Input value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="e.g. EdTech / AI" className="border-white/10 bg-white/5 text-white placeholder:text-zinc-600" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-zinc-500">Startup Stage (Optional)</label>
+              <Input value={stage} onChange={(e) => setStage(e.target.value)} placeholder="e.g. Idea / Prototype" className="border-white/10 bg-white/5 text-white placeholder:text-zinc-600" />
+            </div>
           </div>
           <Button onClick={submit} disabled={busy || !name.trim() || !idea.trim()} className="w-full bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">
             {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating &amp; preparing interview...</> : 'Start Founder Interview'}
@@ -633,10 +642,11 @@ const isOverdue = (m) => m.due_date && ['pending', 'submitted'].includes(m.statu
 
 function EvidenceLab({ data, refresh, setError }) {
   const [submitFor, setSubmitFor] = useState(null)
-  const [form, setForm] = useState({ description: '', results: '', metrics: '', links: '', notes: '' })
+  const [form, setForm] = useState({ description: '', results: '', metrics: '', links: '', notes: '', image: '', imageName: '' })
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
   const [recalcing, setRecalcing] = useState(false)
+  const [filter, setFilter] = useState('open') // 'open' | 'evaluated' | 'all'
   const [dateFor, setDateFor] = useState(null)
   const [dateVal, setDateVal] = useState('')
   const [savingDate, setSavingDate] = useState(false)
@@ -657,7 +667,7 @@ function EvidenceLab({ data, refresh, setError }) {
       const res = await api(`/missions/${submitFor.id}/submit`, { method: 'POST', body: form })
       setResult(res)
       setSubmitFor(null)
-      setForm({ description: '', results: '', metrics: '', links: '', notes: '' })
+      setForm({ description: '', results: '', metrics: '', links: '', notes: '', image: '', imageName: '' })
       await refresh()
       // auto re-run chairman -> new readiness score (the loop closes)
       setRecalcing(true)
@@ -670,11 +680,13 @@ function EvidenceLab({ data, refresh, setError }) {
     return <div className="pt-10 text-center text-sm text-zinc-500">No evidence missions yet. Convene the AI Board first — the Critic will generate claims and the Evidence Agent will create missions.</div>
   }
 
-  const active = missions.filter((m) => ['pending', 'submitted'].includes(m.status))
-  const done = missions.filter((m) => !['pending', 'submitted'].includes(m.status))
+  const openMissions = missions.filter((m) => m.status === 'pending' || m.status === 'submitted')
+  const evaluatedMissions = missions.filter((m) => m.status !== 'pending' && m.status !== 'submitted')
 
-  const MissionCard = ({ m }) => {
+  const MissionCard = ({ m, isEvaluated = false }) => {
     const ev = m.evaluations?.[m.evaluations.length - 1]
+    const sub = m.submissions?.[m.submissions.length - 1]
+
     return (
       <div className={`${glass} flex flex-col p-5`}>
         <div className="flex items-start justify-between gap-2">
@@ -686,13 +698,13 @@ function EvidenceLab({ data, refresh, setError }) {
           </div>
         </div>
         {m.is_followup && <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-sky-400">Follow-up mission</span>}
-        <div className="mt-3 space-y-3 text-sm">
+        <div className="mt-3 space-y-3 text-sm flex-1">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Claim under test</div>
             <p className="mt-0.5 italic text-zinc-400">&ldquo;{m.claim}&rdquo;</p>
           </div>
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Task · {m.task_type?.replace('_', ' ')}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Task · {m.task_type?.replace(/_/g, ' ')}</div>
             <p className="mt-0.5 leading-relaxed text-zinc-300">{m.description}</p>
           </div>
           {m.instructions?.length > 0 && (
@@ -727,16 +739,26 @@ function EvidenceLab({ data, refresh, setError }) {
             ) : <span className="text-zinc-700">no target date</span>}
           </div>
           {ev && (
-            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Evaluation</span>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">Evaluation Result</span>
                 <span className={`text-xs font-bold ${scoreColor(ev.confidence)}`}>{ev.confidence}/100 confidence</span>
               </div>
-              <p className="mt-1 text-xs leading-relaxed text-zinc-400">{ev.evaluation?.reasoning}</p>
+              <p className="text-xs leading-relaxed text-zinc-300">{ev.evaluation?.reasoning}</p>
+              {ev.evaluation?.does_not_prove && (
+                <div className="rounded bg-red-500/10 border border-red-500/20 p-2 text-xs text-red-300">
+                  <span className="font-semibold text-red-400">Why proof was insufficient:</span> {ev.evaluation.does_not_prove}
+                </div>
+              )}
+              {sub?.links && sub.links.includes('[Image Attachment:') && (
+                <div className="text-[11px] text-emerald-400/90 font-medium">
+                  ✓ Photo / Screenshot proof attached
+                </div>
+              )}
             </div>
           )}
         </div>
-        {m.status === 'pending' && (
+        {!isEvaluated && m.status === 'pending' && (
           <Button onClick={() => { setSubmitFor(m); setResult(null) }} size="sm" className="mt-4 bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">
             <FlaskConical className="mr-2 h-3.5 w-3.5" /> Submit Evidence
           </Button>
@@ -747,25 +769,63 @@ function EvidenceLab({ data, refresh, setError }) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="font-[family-name:var(--font-grotesk)] text-xl font-bold text-white">Evidence Lab</h2>
-        <p className="text-xs text-zinc-500">Complete missions in the real world, submit evidence, and the Evidence Agent will judge it. Founder-submitted evidence is labeled as founder-provided.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-[family-name:var(--font-grotesk)] text-xl font-bold text-white">Evidence Lab</h2>
+          <p className="text-xs text-zinc-500">Complete missions in the real world, submit evidence, and the Evidence Agent will judge it.</p>
+        </div>
+        <div className="flex rounded-lg border border-white/10 bg-white/5 p-1 text-xs">
+          <button
+            onClick={() => setFilter('open')}
+            className={`rounded px-3 py-1 font-medium transition ${filter === 'open' ? 'bg-emerald-500 text-zinc-950 font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            Open Missions ({openMissions.length})
+          </button>
+          <button
+            onClick={() => setFilter('evaluated')}
+            className={`rounded px-3 py-1 font-medium transition ${filter === 'evaluated' ? 'bg-emerald-500 text-zinc-950 font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            Completed &amp; Evaluated ({evaluatedMissions.length})
+          </button>
+          <button
+            onClick={() => setFilter('all')}
+            className={`rounded px-3 py-1 font-medium transition ${filter === 'all' ? 'bg-emerald-500 text-zinc-950 font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            All ({missions.length})
+          </button>
+        </div>
       </div>
+
       {recalcing && (
         <div className={`${glass} flex items-center gap-3 border-emerald-500/20 p-4 text-sm text-emerald-300`}>
           <Loader2 className="h-4 w-4 animate-spin" /> Evidence accepted — the Chairman is re-assessing and updating your Investor Readiness Score...
         </div>
       )}
-      {active.length > 0 && (
+
+      {(filter === 'open' || filter === 'all') && openMissions.length > 0 && (
         <div>
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">Open missions ({active.length})</div>
-          <div className="grid gap-4 md:grid-cols-2">{active.map((m) => <MissionCard key={m.id} m={m} />)}</div>
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-sky-400">Open missions needing evidence ({openMissions.length})</div>
+          <div className="grid gap-4 md:grid-cols-2">{openMissions.map((m) => <MissionCard key={m.id} m={m} isEvaluated={false} />)}</div>
         </div>
       )}
-      {done.length > 0 && (
+
+      {(filter === 'open' && openMissions.length === 0) && (
+        <div className={`${glass} p-8 text-center text-sm text-zinc-400`}>
+          <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-400 mb-2" />
+          All current missions have been submitted and evaluated! Check the &ldquo;Completed &amp; Evaluated&rdquo; tab or your Investor Readiness tab.
+        </div>
+      )}
+
+      {(filter === 'evaluated' || filter === 'all') && evaluatedMissions.length > 0 && (
         <div>
-          <div className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">Evaluated missions ({done.length})</div>
-          <div className="grid gap-4 md:grid-cols-2">{done.map((m) => <MissionCard key={m.id} m={m} />)}</div>
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-emerald-400">Completed &amp; evaluated proof ({evaluatedMissions.length})</div>
+          <div className="grid gap-4 md:grid-cols-2">{evaluatedMissions.map((m) => <MissionCard key={m.id} m={m} isEvaluated={true} />)}</div>
+        </div>
+      )}
+
+      {(filter === 'evaluated' && evaluatedMissions.length === 0) && (
+        <div className={`${glass} p-8 text-center text-sm text-zinc-400`}>
+          No missions submitted yet. Submit evidence on an open mission to see evaluation results here.
         </div>
       )}
 
@@ -786,6 +846,37 @@ function EvidenceLab({ data, refresh, setError }) {
                   placeholder={ph} className="border-white/10 bg-white/5 text-sm text-white placeholder:text-zinc-600" />
               </div>
             ))}
+            
+            {/* Optional Image Upload (.jpg / .png) */}
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-widest text-zinc-500">Proof Screenshot / Photo (.jpg, .png) — Optional</label>
+              <Input
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  const reader = new FileReader()
+                  reader.onload = (evt) => {
+                    setForm((f) => ({ ...f, image: evt.target.result, imageName: file.name }))
+                  }
+                  reader.readAsDataURL(file)
+                }}
+                className="border-white/10 bg-white/5 text-xs text-zinc-300 file:mr-2 file:rounded file:border-0 file:bg-emerald-500/20 file:px-2 file:py-1 file:text-xs file:font-medium file:text-emerald-300"
+              />
+              {form.image && (
+                <div className="mt-2 flex items-center justify-between rounded border border-white/10 bg-white/5 p-2">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <img src={form.image} alt="Preview" className="h-10 w-10 shrink-0 rounded object-cover" />
+                    <span className="truncate text-xs text-zinc-300">{form.imageName || 'Attached proof image'}</span>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setForm((f) => ({ ...f, image: '', imageName: '' }))} className="h-7 text-xs text-red-400 hover:text-red-300">
+                    Remove
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <p className="text-[11px] text-zinc-600">Your submission is self-reported and will be evaluated as founder-provided evidence.</p>
             <Button onClick={submit} disabled={busy || !form.description.trim()} className="w-full bg-emerald-500 font-semibold text-zinc-950 hover:bg-emerald-400">
               {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Evidence Agent evaluating...</> : 'Submit for evaluation'}
@@ -866,7 +957,7 @@ function openOnePager(data) {
 <div style="max-width:820px;margin:0 auto;background:#fff;padding:36px 40px;min-height:100vh;box-sizing:border-box">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #10b981;padding-bottom:16px">
     <div>
-      <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:#10b981;text-transform:uppercase">ProofLoop · Evidence-Validated Startup</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:#10b981;text-transform:uppercase">YStart-AI · Evidence-Validated Startup</div>
       <h1 style="margin:6px 0 4px;font-size:30px;color:#09090b">${esc(p.startup_name || data.startup?.name)}</h1>
       <p style="margin:0;font-size:13.5px;color:#3f3f46;max-width:520px;line-height:1.5">${esc(p.value_proposition && p.value_proposition !== 'Not specified' ? p.value_proposition : p.idea || data.startup?.idea)}</p>
     </div>
@@ -905,7 +996,7 @@ function openOnePager(data) {
   ${chairman.critical_risks?.length ? `<div style="margin-top:16px"><div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#dc2626;margin-bottom:8px">Known Risks (transparent by design)</div><ul style="margin:0;padding-left:18px">${li(chairman.critical_risks, '#3f3f46')}</ul></div>` : ''}
 
   <div style="margin-top:26px;border-top:1px solid #e4e4e7;padding-top:10px;font-size:9.5px;color:#a1a1aa;line-height:1.5">
-    Generated by ProofLoop on ${new Date().toLocaleDateString()}. The Investor Readiness Score is an evidence-based readiness assessment, not a guarantee of investment. Founder-submitted evidence is self-reported unless independently verified.
+    Generated by YStart-AI on ${new Date().toLocaleDateString()}. The Investor Readiness Score is an evidence-based readiness assessment, not a guarantee of investment.
   </div>
 </div></body></html>`
 
@@ -1436,7 +1527,7 @@ function App() {
       <aside className="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-white/10 bg-zinc-950/95 p-4">
         <button onClick={() => setView('landing')} className="flex items-center gap-2 px-2 py-1">
           <Shield className="h-5 w-5 text-emerald-400" />
-          <span className="font-[family-name:var(--font-grotesk)] text-lg font-bold text-white">Proof<span className="text-emerald-400">Loop</span></span>
+          <span className="font-[family-name:var(--font-grotesk)] text-lg font-bold text-white">YStart<span className="text-emerald-400">-AI</span></span>
         </button>
         <div className="mt-6">
           <div className="mb-2 flex items-center justify-between px-2">

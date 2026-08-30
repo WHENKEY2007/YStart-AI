@@ -11,8 +11,10 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.variable} ${grotesk.variable} font-sans bg-zinc-950 text-zinc-100 antialiased`}>{children}</body>
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body suppressHydrationWarning className={`${inter.variable} ${grotesk.variable} font-sans bg-zinc-950 text-zinc-100 antialiased`}>
+        {children}
+      </body>
     </html>
   )
 }
